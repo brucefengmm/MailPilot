@@ -6,16 +6,18 @@ on:
       - main
   workflow_dispatch:
 
+# Required for release-please (PRs) and for reusable workflows (release/packaging uploads).
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
 jobs:
   release-please:
     runs-on: ubuntu-latest
-    # Job-level permissions are required; repo must also allow Actions to open PRs
-    # (Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests").
-    # If that setting is disabled at org level, add a fine-grained PAT as RELEASE_PLEASE_TOKEN.
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+    # Repo must also allow Actions to open PRs:
+    # Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests".
+    # If blocked at org level, add a fine-grained PAT as RELEASE_PLEASE_TOKEN.
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
@@ -31,6 +33,8 @@ jobs:
   build-and-release:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
     uses: ./.github/workflows/release.yml
     with:
       tag_name: ${{ needs.release-please.outputs.tag_name }}
@@ -40,6 +44,8 @@ jobs:
   packaging:
     needs: [release-please, build-and-release]
     if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
     uses: ./.github/workflows/packaging.yml
     with:
       tag_name: ${{ needs.release-please.outputs.tag_name }}
