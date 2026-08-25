@@ -4,14 +4,18 @@ on:
   push:
     branches:
       - main
-
-permissions:
-  contents: write
-  pull-requests: write
+  workflow_dispatch:
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    # Job-level permissions are required; repo must also allow Actions to open PRs
+    # (Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests").
+    # If that setting is disabled at org level, add a fine-grained PAT as RELEASE_PLEASE_TOKEN.
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
@@ -20,7 +24,9 @@ jobs:
       - uses: googleapis/release-please-action@v4
         id: release
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
 
   build-and-release:
     needs: release-please
