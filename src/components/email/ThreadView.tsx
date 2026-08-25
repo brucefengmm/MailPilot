@@ -285,8 +285,8 @@ export function ThreadView({ thread }: ThreadViewProps) {
       };
       setRawMessageTarget(detail);
     };
-    window.addEventListener("velo-view-raw-message", handler);
-    return () => window.removeEventListener("velo-view-raw-message", handler);
+    window.addEventListener("mailpilot-view-raw-message", handler);
+    return () => window.removeEventListener("mailpilot-view-raw-message", handler);
   }, []);
 
   // Listen for extract-task event from keyboard shortcut
@@ -297,8 +297,8 @@ export function ThreadView({ thread }: ThreadViewProps) {
         setShowTaskExtract(true);
       }
     };
-    window.addEventListener("velo-extract-task", handler);
-    return () => window.removeEventListener("velo-extract-task", handler);
+    window.addEventListener("mailpilot-extract-task", handler);
+    return () => window.removeEventListener("mailpilot-extract-task", handler);
   }, [thread.id]);
 
   const handleMessageContextMenu = useCallback((e: React.MouseEvent, msg: DbMessage) => {

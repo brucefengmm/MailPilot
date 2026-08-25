@@ -118,6 +118,29 @@ describe("buildSmtpConfig", () => {
     expect(config.password).toBe("smtp-oauth-token");
     expect(config.auth_method).toBe("oauth2");
   });
+
+  it("uses smtp_auth_method oauth2 with stored access_token for hybrid accounts", () => {
+    const account = createMockDbAccount({
+      auth_method: "password",
+      smtp_auth_method: "oauth2",
+      access_token: "yandex-oauth-token",
+      imap_password: "imap-password",
+    });
+    const config = buildSmtpConfig(account);
+    expect(config.auth_method).toBe("oauth2");
+    expect(config.password).toBe("yandex-oauth-token");
+  });
+
+  it("uses imap_password when smtp_auth_method is password", () => {
+    const account = createMockDbAccount({
+      auth_method: "password",
+      smtp_auth_method: "password",
+      access_token: "unused-token",
+    });
+    const config = buildSmtpConfig(account);
+    expect(config.auth_method).toBe("password");
+    expect(config.password).toBe("secret123");
+  });
 });
 
 describe("imap_username override", () => {

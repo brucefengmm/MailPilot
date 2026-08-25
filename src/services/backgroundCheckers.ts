@@ -2,6 +2,8 @@
  * Factory for creating background interval checkers.
  * Provides consistent start/stop/error handling for periodic tasks.
  */
+import { isBulkWriteMode } from "./db/bulkWrite";
+
 export interface BackgroundChecker {
   start(): void;
   stop(): void;
@@ -15,6 +17,7 @@ export function createBackgroundChecker(
   let interval: ReturnType<typeof setInterval> | null = null;
 
   const run = async () => {
+    if (isBulkWriteMode()) return;
     try {
       await checkFn();
     } catch (err) {

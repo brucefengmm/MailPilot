@@ -163,3 +163,19 @@ export function getSyncableFolders(folders: ImapFolder[]): ImapFolder[] {
     return true;
   });
 }
+
+export function isInboxFolder(folder: ImapFolder): boolean {
+  if (folder.special_use?.includes("\\Inbox")) return true;
+  const path = folder.path.toUpperCase();
+  return path === "INBOX" || path.endsWith("/INBOX");
+}
+
+/** Put INBOX first, then sort alphabetically by path. */
+export function sortFoldersForSync(folders: ImapFolder[]): ImapFolder[] {
+  return [...folders].sort((a, b) => {
+    const aInbox = isInboxFolder(a) ? 0 : 1;
+    const bInbox = isInboxFolder(b) ? 0 : 1;
+    if (aInbox !== bInbox) return aInbox - bInbox;
+    return a.path.localeCompare(b.path);
+  });
+}

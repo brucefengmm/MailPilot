@@ -2,9 +2,38 @@ import Database from "@tauri-apps/plugin-sql";
 
 let db: Database | null = null;
 
+/** Serializes all SQLite operations — required because sqlx pool acquires per call. */
+let dbOpQueue: Promise<unknown> = Promise.resolve();
+
+export function runSerializedDb<T>(fn: () => Promise<T>): Promise<T> {
+  const run = dbOpQueue.then(fn, fn);
+  dbOpQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+function wrapDb(database: Database): Database {
+  const originalExecute = database.execute.bind(database);
+  const originalSelect = database.select.bind(database);
+
+  database.execute = (sql: string, bindValues?: unknown[]) =>
+    runSerializedDb(() => originalExecute(sql, bindValues ?? []));
+
+  database.select = <T>(sql: string, bindValues?: unknown[]) =>
+    runSerializedDb(() => originalSelect<T>(sql, bindValues ?? []));
+
+  return database;
+}
+
 export async function getDb(): Promise<Database> {
   if (!db) {
-    db = await Database.load("sqlite:velo.db");
+    const loaded = await Database.load("sqlite:mailpilot.db");
+    db = wrapDb(loaded);
+    // WAL allows readers during heavy sync writes; busy_timeout avoids immediate lock errors.
+    await db.execute("PRAGMA journal_mode = WAL", []);
+    await db.execute("PRAGMA busy_timeout = 30000", []);
   }
   return db;
 }
@@ -62,7 +91,8 @@ export async function withTransaction(fn: (db: Database) => Promise<void>): Prom
 
   const database = await getDb();
   try {
-    await database.execute("BEGIN TRANSACTION", []);
+    // IMMEDIATE acquires the write lock up front so we don't stall mid-batch.
+    await database.execute("BEGIN IMMEDIATE", []);
     try {
       await fn(database);
       await database.execute("COMMIT", []);
@@ -88,8 +118,8 @@ export async function selectFirstBy<T>(
   query: string,
   params: unknown[] = [],
 ): Promise<T | null> {
-  const db = await getDb();
-  const rows = await db.select<T[]>(query, params);
+  const conn = await getDb();
+  const rows = await conn.select<T[]>(query, params);
   return rows[0] ?? null;
 }
 
@@ -100,8 +130,8 @@ export async function existsBy(
   query: string,
   params: unknown[] = [],
 ): Promise<boolean> {
-  const db = await getDb();
-  const rows = await db.select<{ count: number }[]>(query, params);
+  const conn = await getDb();
+  const rows = await conn.select<{ count: number }[]>(query, params);
   return (rows[0]?.count ?? 0) > 0;
 }
 

@@ -22,6 +22,12 @@ function mapAuthMethod(method: string | null): "password" | "oauth2" {
   return "password";
 }
 
+function resolveSmtpAuthMethod(account: DbAccount): "password" | "oauth2" {
+  if (account.smtp_auth_method === "oauth2") return "oauth2";
+  if (account.smtp_auth_method === "password") return "password";
+  return mapAuthMethod(account.auth_method);
+}
+
 /**
  * Build an ImapConfig from a DbAccount's IMAP fields.
  * Assumes the account's imap_password has already been decrypted.
@@ -69,10 +75,10 @@ export function buildSmtpConfig(
     throw new Error(`Account ${account.id} has no SMTP host configured`);
   }
 
-  const authMethod = mapAuthMethod(account.auth_method);
+  const authMethod = resolveSmtpAuthMethod(account);
   const password =
-    authMethod === "oauth2" && accessToken
-      ? accessToken
+    authMethod === "oauth2"
+      ? (accessToken ?? account.access_token ?? "")
       : account.imap_password ?? "";
 
   return {

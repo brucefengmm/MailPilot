@@ -80,10 +80,39 @@ export interface ImapFolderSearchResult {
 
 // ---------- Folder sync result (single-connection search + fetch) ----------
 
+export interface ImapFolderSyncSummary {
+  uids: number[];
+  folder_status: ImapFolderStatus;
+  messages_fetched: number;
+}
+
+export interface ImapSyncBatchEvent {
+  accountId: string;
+  folder: string;
+  messages: ImapMessage[];
+  fetchedCount: number;
+  totalUids: number;
+  batchIndex: number;
+  isLastBatch: boolean;
+  folderStatus: ImapFolderStatus;
+}
+
 export interface ImapFolderSyncResult {
   uids: number[];
   messages: ImapMessage[];
   folder_status: ImapFolderStatus;
+}
+
+/** Event payload uses camelCase (Rust #[serde(rename_all = "camelCase")]). */
+interface ImapSyncBatchEventPayload {
+  accountId: string;
+  folder: string;
+  messages: ImapMessage[];
+  fetchedCount: number;
+  totalUids: number;
+  batchIndex: number;
+  isLastBatch: boolean;
+  folderStatus: ImapFolderStatus;
 }
 
 // ---------- Delta check types ----------
@@ -125,7 +154,23 @@ export interface SmtpSendResult {
  * Returns a success message string.
  */
 export async function imapTestConnection(config: ImapConfig): Promise<string> {
-  return invoke<string>('imap_test_connection', { config });
+  console.info('[MailPilot] imapTestConnection', {
+    host: config.host,
+    port: config.port,
+    security: config.security,
+    auth_method: config.auth_method,
+    username: config.username,
+    credential_len: config.password.length,
+    accept_invalid_certs: config.accept_invalid_certs ?? false,
+  });
+  try {
+    const result = await invoke<string>('imap_test_connection', { config });
+    console.info('[MailPilot] imapTestConnection success:', result);
+    return result;
+  } catch (err) {
+    console.error('[MailPilot] imapTestConnection failed:', err);
+    throw err;
+  }
 }
 
 /**
@@ -294,6 +339,43 @@ export async function imapSyncFolder(
 }
 
 /**
+ * Single-connection folder sync with per-batch Tauri events.
+ * Messages arrive via `onBatch`; the invoke result is a lightweight summary.
+ */
+export async function imapSyncFolderStreaming(
+  config: ImapConfig,
+  accountId: string,
+  folder: string,
+  batchSize: number,
+  sinceDate: string | null | undefined,
+  onBatch: (event: ImapSyncBatchEvent) => void | Promise<void>,
+): Promise<ImapFolderSyncSummary> {
+  const { listen } = await import('@tauri-apps/api/event');
+  let batchQueue: Promise<void> = Promise.resolve();
+
+  const unlisten = await listen<ImapSyncBatchEventPayload>('imap-sync-folder-batch', (event) => {
+    const payload = event.payload;
+    if (payload.accountId === accountId && payload.folder === folder) {
+      batchQueue = batchQueue.then(() => Promise.resolve(onBatch(payload)));
+    }
+  });
+
+  try {
+    const summary = await invoke<ImapFolderSyncSummary>('imap_sync_folder_streaming', {
+      config,
+      accountId,
+      folder,
+      batchSize,
+      sinceDate: sinceDate ?? null,
+    });
+    await batchQueue;
+    return summary;
+  } finally {
+    unlisten();
+  }
+}
+
+/**
  * Search a folder for UIDs without fetching message bodies.
  * Returns UIDs and folder status — lightweight alternative to `imapSyncFolder`
  * for callers that fetch messages in smaller IPC-friendly chunks.
@@ -334,5 +416,21 @@ export async function smtpSendEmail(
  * Test SMTP connectivity by connecting and authenticating.
  */
 export async function smtpTestConnection(config: SmtpConfig): Promise<SmtpSendResult> {
-  return invoke<SmtpSendResult>('smtp_test_connection', { config });
+  console.info('[MailPilot] smtpTestConnection', {
+    host: config.host,
+    port: config.port,
+    security: config.security,
+    auth_method: config.auth_method,
+    username: config.username,
+    credential_len: config.password.length,
+    accept_invalid_certs: config.accept_invalid_certs ?? false,
+  });
+  try {
+    const result = await invoke<SmtpSendResult>('smtp_test_connection', { config });
+    console.info('[MailPilot] smtpTestConnection result:', result);
+    return result;
+  } catch (err) {
+    console.error('[MailPilot] smtpTestConnection failed:', err);
+    throw err;
+  }
 }

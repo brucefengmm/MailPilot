@@ -11,9 +11,14 @@ import {
   Send,
   ShieldCheck,
   KeyRound,
+  FolderSync,
 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { insertImapAccount, insertOAuthImapAccount } from "@/services/db/accounts";
+import {
+  saveFolderSyncPrefs,
+  updateAccountImapSyncSettings,
+} from "@/services/db/imapSyncPrefs";
 import { useAccountStore } from "@/stores/accountStore";
 import {
   discoverSettings,
@@ -23,6 +28,11 @@ import {
 } from "@/services/imap/autoDiscovery";
 import { getOAuthProvider } from "@/services/oauth/providers";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
+import {
+  ImapSyncConfigPanel,
+  buildImapConfigFromForm,
+  type ImapSyncConfigState,
+} from "@/components/accounts/ImapSyncConfigPanel";
 
 interface AddImapAccountProps {
   onClose: () => void;
@@ -30,7 +40,7 @@ interface AddImapAccountProps {
   onBack: () => void;
 }
 
-type Step = "basic" | "imap" | "smtp" | "test";
+type Step = "basic" | "imap" | "smtp" | "test" | "sync";
 type AuthMode = "password" | "oauth2";
 
 interface FormState {
@@ -47,6 +57,9 @@ interface FormState {
   smtpPassword: string;
   samePassword: boolean;
   acceptInvalidCerts: boolean;
+  /** SMTP uses XOAUTH2 token while IMAP uses password (Yandex Team) */
+  smtpUseOAuthToken: boolean;
+  smtpOAuthToken: string;
   // OAuth2 fields
   authMode: AuthMode;
   oauthProvider: string | null;
@@ -72,6 +85,8 @@ const initialFormState: FormState = {
   smtpPassword: "",
   samePassword: true,
   acceptInvalidCerts: false,
+  smtpUseOAuthToken: false,
+  smtpOAuthToken: "",
   authMode: "password",
   oauthProvider: null,
   oauthClientId: "",
@@ -82,13 +97,14 @@ const initialFormState: FormState = {
   oauthEmail: null,
 };
 
-const steps: Step[] = ["basic", "imap", "smtp", "test"];
+const steps: Step[] = ["basic", "imap", "smtp", "test", "sync"];
 
 const stepLabels: Record<Step, string> = {
   basic: "Account",
   imap: "Incoming",
   smtp: "Outgoing",
   test: "Verify",
+  sync: "Sync",
 };
 
 const stepIcons: Record<Step, React.ReactNode> = {
@@ -96,6 +112,7 @@ const stepIcons: Record<Step, React.ReactNode> = {
   imap: <Server className="w-4 h-4" />,
   smtp: <Send className="w-4 h-4" />,
   test: <ShieldCheck className="w-4 h-4" />,
+  sync: <FolderSync className="w-4 h-4" />,
 };
 
 interface TestStatus {
@@ -115,6 +132,30 @@ function mapSecurity(security: string): string {
   return security;
 }
 
+/** Log connection test params without secrets (for debugging). */
+function logConnectionTest(
+  protocol: "IMAP" | "SMTP",
+  config: {
+    host: string;
+    port: number;
+    security: string;
+    username: string;
+    password: string;
+    auth_method: string;
+    accept_invalid_certs?: boolean;
+  },
+) {
+  console.info(`[MailPilot] ${protocol} test connection`, {
+    host: config.host,
+    port: config.port,
+    security: config.security,
+    auth_method: config.auth_method,
+    username: config.username,
+    credential_len: config.password.length,
+    accept_invalid_certs: config.accept_invalid_certs ?? false,
+  });
+}
+
 export function AddImapAccount({
   onClose,
   onSuccess,
@@ -131,8 +172,13 @@ export function AddImapAccount({
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [detectedAuthMethods, setDetectedAuthMethods] = useState<AuthMode[]>(["password"]);
   const [detectedOAuthProviderId, setDetectedOAuthProviderId] = useState<string | null>(null);
+  const [syncConfig, setSyncConfig] = useState<ImapSyncConfigState | null>(null);
 
   const addAccount = useAccountStore((s) => s.addAccount);
+
+  const handleSyncConfigChange = useCallback((state: ImapSyncConfigState) => {
+    setSyncConfig(state);
+  }, []);
 
   const currentStepIndex = steps.indexOf(currentStep);
 
@@ -156,6 +202,7 @@ export function AddImapAccount({
         smtpPort: result.settings.smtpPort,
         smtpSecurity: result.settings.smtpSecurity,
         acceptInvalidCerts: result.acceptInvalidCerts ?? false,
+        smtpUseOAuthToken: result.smtpAuthMethod === "oauth2",
         // Auto-select OAuth2 if it's the only option (e.g. Outlook)
         authMode: result.authMethods[0] === "oauth2" ? "oauth2" : prev.authMode,
         oauthProvider: result.oauthProviderId ?? null,
@@ -195,8 +242,14 @@ export function AddImapAccount({
     form.email.trim().includes("@") &&
     (isOAuth ? hasOAuthTokens : form.password.trim().length > 0);
   const canAdvanceFromImap = form.imapHost.trim().length > 0 && form.imapPort > 0;
-  const canAdvanceFromSmtp = form.smtpHost.trim().length > 0 && form.smtpPort > 0;
+  const canAdvanceFromSmtp =
+    form.smtpHost.trim().length > 0 &&
+    form.smtpPort > 0 &&
+    (!form.smtpUseOAuthToken || form.smtpOAuthToken.trim().length > 0);
   const bothTestsPassed = imapTest.state === "success" && smtpTest.state === "success";
+  const enabledFolderCount = syncConfig
+    ? Object.values(syncConfig.folderPrefs).filter(Boolean).length
+    : 0;
 
   const goNext = useCallback(() => {
     const idx = steps.indexOf(currentStep);
@@ -223,6 +276,8 @@ export function AddImapAccount({
       case "smtp":
         return canAdvanceFromSmtp;
       case "test":
+        return bothTestsPassed;
+      case "sync":
         return false;
       default:
         return false;
@@ -231,7 +286,7 @@ export function AddImapAccount({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" && currentStep !== "test" && canGoNext()) {
+      if (e.key === "Enter" && currentStep !== "test" && currentStep !== "sync" && canGoNext()) {
         e.preventDefault();
         goNext();
       }
@@ -283,56 +338,60 @@ export function AddImapAccount({
 
   const testImapConnection = async () => {
     setImapTest({ state: "testing" });
+    const config = {
+      host: form.imapHost,
+      port: form.imapPort,
+      security: mapSecurity(form.imapSecurity),
+      username: form.imapUsername || (isOAuth ? (form.oauthEmail ?? form.email) : form.email),
+      password: isOAuth ? (form.oauthAccessToken ?? "") : form.password,
+      auth_method: isOAuth ? "oauth2" : "password",
+      accept_invalid_certs: form.acceptInvalidCerts,
+    };
+    logConnectionTest("IMAP", config);
     try {
-      const result = await invoke<string>(
-        "imap_test_connection",
-        {
-          config: {
-            host: form.imapHost,
-            port: form.imapPort,
-            security: mapSecurity(form.imapSecurity),
-            username: form.imapUsername || (isOAuth ? (form.oauthEmail ?? form.email) : form.email),
-            password: isOAuth ? (form.oauthAccessToken ?? "") : form.password,
-            auth_method: isOAuth ? "oauth2" : "password",
-            accept_invalid_certs: form.acceptInvalidCerts,
-          },
-        },
-      );
+      const result = await invoke<string>("imap_test_connection", { config });
+      console.info("[MailPilot] IMAP test connection success:", result);
       setImapTest({ state: "success", message: result });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      console.error("[MailPilot] IMAP test connection failed:", message);
       setImapTest({ state: "error", message });
     }
   };
 
   const testSmtpConnection = async () => {
     setSmtpTest({ state: "testing" });
-    try {
-      const smtpPassword = isOAuth
-        ? (form.oauthAccessToken ?? "")
+    const smtpUsesOAuth = isOAuth || form.smtpUseOAuthToken;
+    const smtpPassword = isOAuth
+      ? (form.oauthAccessToken ?? "")
+      : form.smtpUseOAuthToken
+        ? form.smtpOAuthToken
         : form.samePassword
           ? form.password
           : form.smtpPassword;
+    const config = {
+      host: form.smtpHost,
+      port: form.smtpPort,
+      security: mapSecurity(form.smtpSecurity),
+      username: form.imapUsername || (isOAuth ? (form.oauthEmail ?? form.email) : form.email),
+      password: smtpPassword,
+      auth_method: smtpUsesOAuth ? "oauth2" : "password",
+      accept_invalid_certs: form.acceptInvalidCerts,
+    };
+    logConnectionTest("SMTP", config);
+    try {
       const result = await invoke<{ success: boolean; message: string }>(
         "smtp_test_connection",
-        {
-          config: {
-            host: form.smtpHost,
-            port: form.smtpPort,
-            security: mapSecurity(form.smtpSecurity),
-            username: form.imapUsername || (isOAuth ? (form.oauthEmail ?? form.email) : form.email),
-            password: smtpPassword,
-            auth_method: isOAuth ? "oauth2" : "password",
-            accept_invalid_certs: form.acceptInvalidCerts,
-          },
-        },
+        { config },
       );
+      console.info("[MailPilot] SMTP test connection result:", result);
       setSmtpTest({
         state: result.success ? "success" : "error",
         message: result.message,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      console.error("[MailPilot] SMTP test connection failed:", message);
       setSmtpTest({ state: "error", message });
     }
   };
@@ -384,10 +443,31 @@ export function AddImapAccount({
           smtpPort: form.smtpPort,
           smtpSecurity: form.smtpSecurity,
           authMethod: "password",
-          password: form.samePassword ? form.password : form.password,
+          password: form.password,
+          smtpAuthMethod: form.smtpUseOAuthToken ? "oauth2" : "password",
+          smtpOAuthToken: form.smtpUseOAuthToken ? form.smtpOAuthToken : null,
           imapUsername,
           acceptInvalidCerts: form.acceptInvalidCerts,
         });
+      }
+
+      if (syncConfig) {
+        await updateAccountImapSyncSettings(accountId, {
+          mode: syncConfig.syncMode,
+          days:
+            syncConfig.syncMode === "days"
+              ? parseInt(syncConfig.syncDays, 10) || 365
+              : null,
+          sinceDate:
+            syncConfig.syncMode === "since" ? syncConfig.syncSince : null,
+        });
+        await saveFolderSyncPrefs(
+          accountId,
+          Object.entries(syncConfig.folderPrefs).map(([folderPath, enabled]) => ({
+            folderPath,
+            enabled,
+          })),
+        );
       }
 
       addAccount({
@@ -734,6 +814,12 @@ export function AddImapAccount({
           Server settings have been auto-configured for your provider. You can adjust them if needed.
         </p>
       )}
+      {!isOAuth && (
+        <p className="text-xs text-text-tertiary">
+          Use the same server settings that work in your other mail client. If IMAP and SMTP
+          use different passwords, uncheck &quot;Use same password as IMAP&quot; below.
+        </p>
+      )}
       <div>
         <label htmlFor="smtp-host" className={labelClass}>
           SMTP Server
@@ -785,33 +871,70 @@ export function AddImapAccount({
         <>
           <div className="flex items-center gap-2">
             <input
-              id="smtp-same-password"
+              id="smtp-use-oauth-token"
               type="checkbox"
-              checked={form.samePassword}
-              onChange={(e) => updateForm("samePassword", e.target.checked)}
+              checked={form.smtpUseOAuthToken}
+              onChange={(e) => updateForm("smtpUseOAuthToken", e.target.checked)}
               className="rounded border-border-primary text-accent focus:ring-accent"
             />
             <label
-              htmlFor="smtp-same-password"
+              htmlFor="smtp-use-oauth-token"
               className="text-sm text-text-secondary"
             >
-              Use same password as IMAP
+              SMTP uses OAuth token (XOAUTH2)
             </label>
           </div>
-          {!form.samePassword && (
+          <p className="text-xs text-text-tertiary -mt-2 ml-6">
+            Required for Yandex Team corporate mail. Paste your IMAP/SMTP OAuth token
+            (e.g. from <code className="text-text-secondary">YAHOAuth_TOKEN</code>).
+          </p>
+          {form.smtpUseOAuthToken ? (
             <div>
-              <label htmlFor="smtp-password" className={labelClass}>
-                SMTP Password
+              <label htmlFor="smtp-oauth-token" className={labelClass}>
+                SMTP OAuth Token
               </label>
               <input
-                id="smtp-password"
+                id="smtp-oauth-token"
                 type="password"
-                value={form.smtpPassword}
-                onChange={(e) => updateForm("smtpPassword", e.target.value)}
-                placeholder="SMTP password"
+                value={form.smtpOAuthToken}
+                onChange={(e) => updateForm("smtpOAuthToken", e.target.value)}
+                placeholder="Paste OAuth token for SMTP"
                 className={inputClass}
               />
             </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <input
+                  id="smtp-same-password"
+                  type="checkbox"
+                  checked={form.samePassword}
+                  onChange={(e) => updateForm("samePassword", e.target.checked)}
+                  className="rounded border-border-primary text-accent focus:ring-accent"
+                />
+                <label
+                  htmlFor="smtp-same-password"
+                  className="text-sm text-text-secondary"
+                >
+                  Use same password as IMAP
+                </label>
+              </div>
+              {!form.samePassword && (
+                <div>
+                  <label htmlFor="smtp-password" className={labelClass}>
+                    SMTP Password
+                  </label>
+                  <input
+                    id="smtp-password"
+                    type="password"
+                    value={form.smtpPassword}
+                    onChange={(e) => updateForm("smtpPassword", e.target.value)}
+                    placeholder="SMTP password"
+                    className={inputClass}
+                  />
+                </div>
+              )}
+            </>
           )}
         </>
       )}
@@ -852,6 +975,25 @@ export function AddImapAccount({
       </div>
     );
   };
+
+  const renderSyncStep = () => (
+    <div className="space-y-3">
+      <p className="text-sm text-text-secondary">
+        Choose which folders to download and how far back to sync. You can change
+        this later in Settings.
+      </p>
+      <ImapSyncConfigPanel
+        imapConfig={buildImapConfigFromForm(form)}
+        onChange={handleSyncConfigChange}
+      />
+      {syncConfig && enabledFolderCount === 0 && (
+        <p className="text-xs text-danger">Select at least one folder to sync.</p>
+      )}
+      {syncConfig?.syncMode === "since" && !syncConfig.syncSince && (
+        <p className="text-xs text-danger">Choose a start date for sync.</p>
+      )}
+    </div>
+  );
 
   const renderTestStep = () => (
     <div className="space-y-4">
@@ -894,6 +1036,8 @@ export function AddImapAccount({
         return renderSmtpStep();
       case "test":
         return renderTestStep();
+      case "sync":
+        return renderSyncStep();
     }
   };
 
@@ -925,10 +1069,15 @@ export function AddImapAccount({
               Cancel
             </button>
 
-            {currentStep === "test" ? (
+            {currentStep === "sync" ? (
               <button
                 onClick={handleSave}
-                disabled={!bothTestsPassed || saving}
+                disabled={
+                  saving ||
+                  !syncConfig ||
+                  enabledFolderCount === 0 ||
+                  (syncConfig.syncMode === "since" && !syncConfig.syncSince)
+                }
                 className="px-4 py-2 text-sm bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {saving ? "Adding..." : "Add Account"}

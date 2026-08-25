@@ -136,9 +136,14 @@ export class ImapSmtpProvider implements EmailProvider {
 
   private async getSmtpConfig(): Promise<SmtpConfig> {
     const account = await this.getAccount();
-    if (account.auth_method === "oauth2") {
-      const token = await ensureFreshToken(account);
-      return buildSmtpConfig(account, token);
+    const smtpAuth = account.smtp_auth_method ?? account.auth_method;
+    if (smtpAuth === "oauth2") {
+      if (account.oauth_provider) {
+        const token = await ensureFreshToken(account);
+        return buildSmtpConfig(account, token);
+      }
+      // Static OAuth token (e.g. Yandex Team SMTP) stored in access_token
+      return buildSmtpConfig(account, account.access_token ?? undefined);
     }
     if (!this._smtpConfig) {
       this._smtpConfig = buildSmtpConfig(account);

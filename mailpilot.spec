@@ -1,16 +1,16 @@
-%global app_name velo
+%global app_name mailpilot
 # x-release-please-start-version
-%global app_version 0.4.21
+%global app_version 0.0.1
 # x-release-please-end
 %global app_release 1
 
 Name:    %{app_name}
 Version: %{app_version}
 Release: %{app_release}%{?dist}
-Summary: Fast, beautiful desktop email client
+Summary: AI-first desktop email client
 
 License: Apache-2.0
-URL:     https://github.com/avihaymenahem/velo
+URL:     https://github.com/brucefengmm/MailPilot
 Source0: %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 
 # Build Dependencies
@@ -30,8 +30,8 @@ Requires: libappindicator-gtk3
 Requires: hicolor-icon-theme
 
 %description
-Velo is a fast, beautiful, and open-source desktop email client built with
-modern web technologies, using Tauri, React, and Vite.
+MailPilot is an AI-first desktop email client built with modern web
+technologies, using Tauri, React, and Vite.
 
 %prep
 %setup -q -n %{name}-%{version}
@@ -50,7 +50,7 @@ rpm2cpio %{_builddir}/%{name}-%{version}/src-tauri/target/release/bundle/rpm/*.r
 
 %files
 %{_bindir}/%{app_name}
-%{_datadir}/applications/Velo.desktop
+%{_datadir}/applications/MailPilot.desktop
 %{_datadir}/icons/hicolor/32x32/apps/%{app_name}.png
 %{_datadir}/icons/hicolor/128x128/apps/%{app_name}.png
 %{_datadir}/icons/hicolor/256x256/apps/%{app_name}.png

@@ -1,3 +1,4 @@
+import type Database from "@tauri-apps/plugin-sql";
 import { getDb } from "./connection";
 
 export interface DbThread {
@@ -85,7 +86,8 @@ export async function getThreadsForCategory(
   );
 }
 
-export async function upsertThread(thread: {
+export async function upsertThread(
+  thread: {
   id: string;
   accountId: string;
   subject: string | null;
@@ -96,9 +98,11 @@ export async function upsertThread(thread: {
   isStarred: boolean;
   isImportant: boolean;
   hasAttachments: boolean;
-}): Promise<void> {
-  const db = await getDb();
-  await db.execute(
+},
+  db?: Database,
+): Promise<void> {
+  const conn = db ?? await getDb();
+  await conn.execute(
     `INSERT INTO threads (id, account_id, subject, snippet, last_message_at, message_count, is_read, is_starred, is_important, has_attachments)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      ON CONFLICT(account_id, id) DO UPDATE SET
@@ -123,16 +127,17 @@ export async function setThreadLabels(
   accountId: string,
   threadId: string,
   labelIds: string[],
+  db?: Database,
 ): Promise<void> {
-  const db = await getDb();
+  const conn = db ?? await getDb();
   // Remove existing labels
-  await db.execute(
+  await conn.execute(
     "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2",
     [accountId, threadId],
   );
   // Insert new labels
   for (const labelId of labelIds) {
-    await db.execute(
+    await conn.execute(
       "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, $3)",
       [accountId, threadId, labelId],
     );
@@ -195,6 +200,23 @@ export async function deleteThread(
     "DELETE FROM threads WHERE account_id = $1 AND id = $2",
     [accountId, threadId],
   );
+}
+
+/** Delete many placeholder/orphan threads in one statement. */
+export async function deleteThreadsBatch(
+  accountId: string,
+  threadIds: string[],
+): Promise<void> {
+  if (threadIds.length === 0) return;
+  const db = await getDb();
+  for (let i = 0; i < threadIds.length; i += 500) {
+    const chunk = threadIds.slice(i, i + 500);
+    const placeholders = chunk.map((_, idx) => `$${idx + 2}`).join(", ");
+    await db.execute(
+      `DELETE FROM threads WHERE account_id = $1 AND id IN (${placeholders})`,
+      [accountId, ...chunk],
+    );
+  }
 }
 
 export async function deleteAllThreadsForAccount(

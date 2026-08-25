@@ -1,10 +1,12 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { getUnreadInboxCount } from "./db/threads";
+import { isBulkWriteMode } from "./db/bulkWrite";
 
 let lastCount = -1;
 
 export async function updateBadgeCount(): Promise<void> {
+  if (isBulkWriteMode()) return;
   try {
     const count = await getUnreadInboxCount();
     if (count === lastCount) return;
@@ -16,7 +18,7 @@ export async function updateBadgeCount(): Promise<void> {
       // badge count may not be supported on all platforms
     }
 
-    const tooltip = count > 0 ? `Velo - ${count} unread` : "Velo";
+    const tooltip = count > 0 ? `MailPilot - ${count} unread` : "MailPilot";
     try {
       await invoke("set_tray_tooltip", { tooltip });
     } catch {

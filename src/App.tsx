@@ -11,6 +11,7 @@ import { useUIStore } from "./stores/uiStore";
 import { useAccountStore } from "./stores/accountStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { runMigrations } from "./services/db/migrations";
+import { recoverBulkWriteState } from "./services/db/bulkWrite";
 import { getAllAccounts } from "./services/db/accounts";
 import { getSetting } from "./services/db/settings";
 import {
@@ -18,6 +19,7 @@ import {
   stopBackgroundSync,
   syncAccount,
   triggerSync,
+  filterAutoSyncAccountIds,
   onSyncStatus,
 } from "./services/gmail/syncManager";
 import { initializeClients } from "./services/gmail/tokenManager";
@@ -68,6 +70,7 @@ import { useTaskStore } from "./stores/taskStore";
 import { ContextMenuPortal } from "./components/ui/ContextMenuPortal";
 import { MoveToFolderDialog } from "./components/email/MoveToFolderDialog";
 import { OfflineBanner } from "./components/ui/OfflineBanner";
+import { ImapSyncPromptBanner } from "./components/ui/ImapSyncPromptBanner";
 import { UpdateToast } from "./components/ui/UpdateToast";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { formatSyncError } from "./utils/networkErrors";
@@ -125,7 +128,9 @@ export default function App() {
       triggerQueueFlush();
       const accounts = useAccountStore.getState().accounts;
       const activeIds = accounts.filter((a) => a.isActive).map((a) => a.id);
-      if (activeIds.length > 0) triggerSync(activeIds);
+      void filterAutoSyncAccountIds(activeIds).then((autoIds) => {
+        if (autoIds.length > 0) triggerSync(autoIds);
+      });
     };
     const handleOffline = () => setOnline(false);
 
@@ -157,15 +162,15 @@ export default function App() {
       const detail = (e as CustomEvent<{ threadIds: string[] }>).detail;
       setMoveToFolderState({ open: true, threadIds: detail.threadIds });
     };
-    window.addEventListener("velo-toggle-command-palette", togglePalette);
-    window.addEventListener("velo-toggle-shortcuts-help", toggleHelp);
-    window.addEventListener("velo-toggle-ask-inbox", toggleAskInbox);
-    window.addEventListener("velo-move-to-folder", handleMoveToFolder);
+    window.addEventListener("mailpilot-toggle-command-palette", togglePalette);
+    window.addEventListener("mailpilot-toggle-shortcuts-help", toggleHelp);
+    window.addEventListener("mailpilot-toggle-ask-inbox", toggleAskInbox);
+    window.addEventListener("mailpilot-move-to-folder", handleMoveToFolder);
     return () => {
-      window.removeEventListener("velo-toggle-command-palette", togglePalette);
-      window.removeEventListener("velo-toggle-shortcuts-help", toggleHelp);
-      window.removeEventListener("velo-toggle-ask-inbox", toggleAskInbox);
-      window.removeEventListener("velo-move-to-folder", handleMoveToFolder);
+      window.removeEventListener("mailpilot-toggle-command-palette", togglePalette);
+      window.removeEventListener("mailpilot-toggle-shortcuts-help", toggleHelp);
+      window.removeEventListener("mailpilot-toggle-ask-inbox", toggleAskInbox);
+      window.removeEventListener("mailpilot-move-to-folder", handleMoveToFolder);
     };
   }, []);
 
@@ -189,6 +194,7 @@ export default function App() {
     async function init() {
       try {
         await runMigrations();
+        await recoverBulkWriteState();
 
         const ui = useUIStore.getState();
 
@@ -322,9 +328,10 @@ export default function App() {
           }
         }
 
-        // Start background sync for active accounts
+        // Background sync for Gmail only — skip immediate run on startup;
+        // IMAP accounts sync manually after user configures settings.
         if (activeIds.length > 0) {
-          startBackgroundSync(activeIds);
+          startBackgroundSync(activeIds, true);
         }
 
         // Start snooze, scheduled send, follow-up, bundle, and queue checkers
@@ -401,7 +408,7 @@ export default function App() {
       } else if (status === "done") {
         setSyncStatus("Sync complete");
         setTimeout(() => setSyncStatus(null), 2_000);
-        window.dispatchEvent(new Event("velo-sync-done"));
+        window.dispatchEvent(new Event("mailpilot-sync-done"));
         updateBadgeCount();
 
         // Backfill uncategorized threads after first successful sync
@@ -414,7 +421,7 @@ export default function App() {
       } else if (status === "error") {
         setSyncStatus(error ? `Sync failed: ${formatSyncError(error)}` : "Sync failed");
         // Still dispatch sync-done so the UI refreshes with any partially stored data
-        window.dispatchEvent(new Event("velo-sync-done"));
+        window.dispatchEvent(new Event("mailpilot-sync-done"));
         // Auto-clear the error after 8 seconds
         setTimeout(() => setSyncStatus(null), 8_000);
       }
@@ -507,9 +514,10 @@ export default function App() {
 
     const newest = mapped[mapped.length - 1];
     if (newest) {
-      // Sync the new account immediately — before restarting the background
-      // timer so it doesn't queue behind delta syncs for existing accounts.
-      syncAccount(newest.id);
+      // Gmail: sync immediately. IMAP: user configures sync settings then clicks Sync now.
+      if (newest.provider !== "imap") {
+        syncAccount(newest.id);
+      }
 
       // Fetch send-as aliases in the background (non-blocking, skip CalDAV-only accounts)
       if (newest.provider !== "caldav") {
@@ -542,6 +550,7 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen overflow-hidden text-text-primary">
       <OfflineBanner />
+      <ImapSyncPromptBanner />
       {/* Animated gradient blobs for glassmorphism effect */}
       <div className="animated-bg" aria-hidden="true">
         <div className="blob" />

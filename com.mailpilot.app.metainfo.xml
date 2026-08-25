@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component type="desktop-application">
+  <id>com.mailpilot.app</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <name>MailPilot</name>
+  <summary>AI-first desktop email client</summary>
+  <description>
+    <p>MailPilot is an AI-first desktop email client built with modern web technologies.</p>
+  </description>
+  <url type="homepage">https://github.com/brucefengmm/MailPilot</url>
+  <url type="bugtracker">https://github.com/brucefengmm/MailPilot/issues</url>
+  <launchable type="desktop-id">com.mailpilot.app.desktop</launchable>
+  <releases>
+    <release version="0.0.1" date="2026-08-25" /> <!-- x-release-please-version -->
+  </releases>
+  <developer id="app.mailpilot">
+    <name>MailPilot Team</name>
+  </developer>
+  <content_rating type="oars-1.1" />
+  <icons>
+    <icon type="cached" width="128" height="128">/app/share/icons/hicolor/128x128/apps/com.mailpilot.app.png</icon>
+    <icon type="cached" width="256" height="256">/app/share/icons/hicolor/256x256/apps/com.mailpilot.app.png</icon>
+  </icons>
+</component>

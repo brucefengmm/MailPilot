@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=MailPilot
+Comment=AI-first desktop email client
+Exec=mailpilot
+Icon=com.mailpilot.app
+Type=Application
+Categories=Network;Email;
+StartupWMClass=MailPilot
+StartupNotify=true

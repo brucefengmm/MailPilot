@@ -2215,6 +2215,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hostname"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "617aaa3557aef3810a6369d0a99fac8a080891b68bd9f9812a1eeda0c0730cbd"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "windows-link 0.2.1",
+]
+
+[[package]]
 name = "html5ever"
 version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2722,6 +2733,7 @@ dependencies = [
  "fastrand",
  "futures-io",
  "futures-util",
+ "hostname",
  "httpdate",
  "idna",
  "mime",
@@ -2879,6 +2891,44 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93c3b9e5d8b17faf573330bbc43b37d6e918c0a3bf8a88e7d0a220ebc84af9fc"
 dependencies = [
  "encoding_rs",
+]
+
+[[package]]
+name = "mailpilot"
+version = "0.0.1"
+dependencies = [
+ "async-imap",
+ "base64 0.22.1",
+ "futures",
+ "lettre",
+ "log",
+ "mail-parser",
+ "native-tls",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "socket2 0.5.10",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-deep-link",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-http",
+ "tauri-plugin-log",
+ "tauri-plugin-notification",
+ "tauri-plugin-opener",
+ "tauri-plugin-os",
+ "tauri-plugin-process",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-sql",
+ "tauri-plugin-updater",
+ "tokio",
+ "tokio-native-tls",
+ "tray-item",
+ "utf7-imap",
+ "windows 0.58.0",
 ]
 
 [[package]]
@@ -5994,8 +6044,6 @@ dependencies = [
 [[package]]
 name = "tauri-plugin-sql"
 version = "2.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27454a5476feb6ea78d74d0f07085fc8a5e97565d7ae825373011fd27ec30303"
 dependencies = [
  "futures-core",
  "indexmap 2.13.0",
@@ -6783,44 +6831,6 @@ name = "vec_map"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
-
-[[package]]
-name = "velo"
-version = "0.4.18"
-dependencies = [
- "async-imap",
- "base64 0.22.1",
- "futures",
- "lettre",
- "log",
- "mail-parser",
- "native-tls",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "socket2 0.5.10",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-deep-link",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-http",
- "tauri-plugin-log",
- "tauri-plugin-notification",
- "tauri-plugin-opener",
- "tauri-plugin-os",
- "tauri-plugin-process",
- "tauri-plugin-single-instance",
- "tauri-plugin-sql",
- "tauri-plugin-updater",
- "tokio",
- "tokio-native-tls",
- "tray-item",
- "utf7-imap",
- "windows 0.58.0",
-]
 
 [[package]]
 name = "version-compare"

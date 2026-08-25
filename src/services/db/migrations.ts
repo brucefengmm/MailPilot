@@ -775,6 +775,28 @@ const MIGRATIONS = [
     description: "Accept self-signed certificates for IMAP/SMTP",
     sql: `ALTER TABLE accounts ADD COLUMN accept_invalid_certs INTEGER DEFAULT 0;`,
   },
+  {
+    version: 24,
+    description: "Separate SMTP auth method for hybrid IMAP/SMTP accounts",
+    sql: `ALTER TABLE accounts ADD COLUMN smtp_auth_method TEXT;`,
+  },
+  {
+    version: 25,
+    description: "Per-account IMAP folder sync prefs and time range",
+    sql: `
+      ALTER TABLE accounts ADD COLUMN imap_sync_mode TEXT DEFAULT 'days';
+      ALTER TABLE accounts ADD COLUMN imap_sync_days INTEGER;
+      ALTER TABLE accounts ADD COLUMN imap_sync_since TEXT;
+
+      CREATE TABLE IF NOT EXISTS imap_folder_sync_prefs (
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        folder_path TEXT NOT NULL,
+        sync_enabled INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (account_id, folder_path)
+      );
+      CREATE INDEX IF NOT EXISTS idx_imap_folder_sync_prefs_account ON imap_folder_sync_prefs(account_id);
+    `,
+  },
 ];
 
 /**

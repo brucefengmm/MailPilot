@@ -103,3 +103,25 @@ pub struct DeltaCheckResult {
     pub new_uids: Vec<u32>,
     pub uidvalidity_changed: bool,
 }
+
+/// Emitted per fetch batch during `imap_sync_folder_streaming`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImapSyncBatchEvent {
+    pub account_id: String,
+    pub folder: String,
+    pub messages: Vec<ImapMessage>,
+    pub fetched_count: u32,
+    pub total_uids: u32,
+    pub batch_index: u32,
+    pub is_last_batch: bool,
+    pub folder_status: ImapFolderStatus,
+}
+
+/// Summary returned when streaming sync completes (messages delivered via events).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImapFolderSyncSummary {
+    pub uids: Vec<u32>,
+    pub folder_status: ImapFolderStatus,
+    pub messages_fetched: u32,
+}

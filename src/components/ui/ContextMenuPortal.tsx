@@ -11,6 +11,7 @@ import { deleteThread as deleteThreadFromDb, pinThread as pinThreadDb, unpinThre
 import { deleteDraftsForThread } from "@/services/gmail/draftDeletion";
 import { getGmailClient } from "@/services/gmail/tokenManager";
 import { getMessagesForThread } from "@/services/db/messages";
+import { ensureMessageBodyLoaded } from "@/services/imap/messageBodyLoader";
 import { snoozeThread } from "@/services/snooze/snoozeManager";
 import { getEnabledQuickStepsForAccount, type DbQuickStep } from "@/services/db/quickSteps";
 import { executeQuickStep } from "@/services/quickSteps/executor";
@@ -245,14 +246,15 @@ function ThreadMenu({
     const messages = await getMessagesForThread(activeAccountId, thread.id);
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage) return;
-    const replyTo = lastMessage.reply_to ?? lastMessage.from_address;
+    const loaded = await ensureMessageBodyLoaded(lastMessage);
+    const replyTo = loaded.reply_to ?? loaded.from_address;
     openComposer({
       mode: "reply",
       to: replyTo ? [replyTo] : [],
-      subject: `Re: ${lastMessage.subject ?? ""}`,
-      bodyHtml: buildQuote(lastMessage),
-      threadId: lastMessage.thread_id,
-      inReplyToMessageId: lastMessage.id,
+      subject: `Re: ${loaded.subject ?? ""}`,
+      bodyHtml: buildQuote(loaded),
+      threadId: loaded.thread_id,
+      inReplyToMessageId: loaded.id,
     });
   };
 
@@ -260,24 +262,25 @@ function ThreadMenu({
     const messages = await getMessagesForThread(activeAccountId, thread.id);
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage) return;
-    const replyTo = lastMessage.reply_to ?? lastMessage.from_address;
+    const loaded = await ensureMessageBodyLoaded(lastMessage);
+    const replyTo = loaded.reply_to ?? loaded.from_address;
     const allRecipients = new Set<string>();
     if (replyTo) allRecipients.add(replyTo);
     if (lastMessage.to_addresses) {
       lastMessage.to_addresses.split(",").forEach((a) => allRecipients.add(a.trim()));
     }
     const ccList: string[] = [];
-    if (lastMessage.cc_addresses) {
-      lastMessage.cc_addresses.split(",").forEach((a) => ccList.push(a.trim()));
+    if (loaded.cc_addresses) {
+      loaded.cc_addresses.split(",").forEach((a) => ccList.push(a.trim()));
     }
     openComposer({
       mode: "replyAll",
       to: Array.from(allRecipients),
       cc: ccList,
-      subject: `Re: ${lastMessage.subject ?? ""}`,
-      bodyHtml: buildQuote(lastMessage),
-      threadId: lastMessage.thread_id,
-      inReplyToMessageId: lastMessage.id,
+      subject: `Re: ${loaded.subject ?? ""}`,
+      bodyHtml: buildQuote(loaded),
+      threadId: loaded.thread_id,
+      inReplyToMessageId: loaded.id,
     });
   };
 
@@ -285,13 +288,14 @@ function ThreadMenu({
     const messages = await getMessagesForThread(activeAccountId, thread.id);
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage) return;
+    const loaded = await ensureMessageBodyLoaded(lastMessage);
     openComposer({
       mode: "forward",
       to: [],
-      subject: `Fwd: ${lastMessage.subject ?? ""}`,
-      bodyHtml: buildForwardQuote(lastMessage),
-      threadId: lastMessage.thread_id,
-      inReplyToMessageId: lastMessage.id,
+      subject: `Fwd: ${loaded.subject ?? ""}`,
+      bodyHtml: buildForwardQuote(loaded),
+      threadId: loaded.thread_id,
+      inReplyToMessageId: loaded.id,
     });
   };
 
@@ -530,7 +534,7 @@ function ThreadMenu({
       icon: FolderInput,
       shortcut: "v",
       action: () => {
-        window.dispatchEvent(new CustomEvent("velo-move-to-folder", { detail: { threadIds: [...targetIds] } }));
+        window.dispatchEvent(new CustomEvent("mailpilot-move-to-folder", { detail: { threadIds: [...targetIds] } }));
       },
     },
     {
@@ -544,7 +548,7 @@ function ThreadMenu({
           for (const id of targetIds) {
             await setThreadCategory(activeAccountId, id, cat, true);
           }
-          window.dispatchEvent(new Event("velo-sync-done"));
+          window.dispatchEvent(new Event("mailpilot-sync-done"));
         },
       })),
     },
@@ -714,7 +718,7 @@ function MessageMenu({
             icon: Code,
             action: () => {
               window.dispatchEvent(
-                new CustomEvent("velo-view-raw-message", {
+                new CustomEvent("mailpilot-view-raw-message", {
                   detail: { messageId, accountId },
                 }),
               );

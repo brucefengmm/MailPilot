@@ -22,6 +22,7 @@ export interface DbAccount {
   smtp_port: number | null;
   smtp_security: string | null;
   auth_method: string;
+  smtp_auth_method: string | null;
   imap_password: string | null;
   oauth_provider: string | null;
   oauth_client_id: string | null;
@@ -34,6 +35,9 @@ export interface DbAccount {
   caldav_home_url: string | null;
   calendar_provider: string | null;
   accept_invalid_certs: number;
+  imap_sync_mode: string | null;
+  imap_sync_days: number | null;
+  imap_sync_since: string | null;
 }
 
 async function decryptAccountTokens(account: DbAccount): Promise<DbAccount> {
@@ -193,19 +197,25 @@ export async function insertImapAccount(account: {
   smtpSecurity: string;
   authMethod: string;
   password: string;
+  smtpAuthMethod?: string | null;
+  smtpOAuthToken?: string | null;
   imapUsername?: string | null;
   acceptInvalidCerts?: boolean;
 }): Promise<void> {
   const db = await getDb();
   const encPassword = await encryptValue(account.password);
+  const encSmtpToken = account.smtpOAuthToken
+    ? await encryptValue(account.smtpOAuthToken)
+    : null;
   await db.execute(
-    `INSERT INTO accounts (id, email, display_name, avatar_url, access_token, refresh_token, provider, imap_host, imap_port, imap_security, smtp_host, smtp_port, smtp_security, auth_method, imap_password, imap_username, accept_invalid_certs)
-     VALUES ($1, $2, $3, $4, NULL, NULL, 'imap', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+    `INSERT INTO accounts (id, email, display_name, avatar_url, access_token, refresh_token, provider, imap_host, imap_port, imap_security, smtp_host, smtp_port, smtp_security, auth_method, smtp_auth_method, imap_password, imap_username, accept_invalid_certs)
+     VALUES ($1, $2, $3, $4, $5, NULL, 'imap', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
     [
       account.id,
       account.email,
       account.displayName,
       account.avatarUrl,
+      encSmtpToken,
       account.imapHost,
       account.imapPort,
       account.imapSecurity,
@@ -213,6 +223,7 @@ export async function insertImapAccount(account: {
       account.smtpPort,
       account.smtpSecurity,
       account.authMethod,
+      account.smtpAuthMethod ?? null,
       encPassword,
       account.imapUsername || null,
       account.acceptInvalidCerts ? 1 : 0,

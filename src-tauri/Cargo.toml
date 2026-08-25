@@ -1,6 +1,6 @@
 [package]
-name = "velo"
-version = "0.4.21" # x-release-please-version
+name = "mailpilot"
+version = "0.0.1" # x-release-please-version
 description = "Email at the speed of thought"
 authors = ["Avihay"]
 license = "Apache-2.0"
@@ -40,7 +40,7 @@ async-imap = { version = "0.10", default-features = false, features = ["runtime-
 tokio-native-tls = "0.3"
 native-tls = "0.2"
 mail-parser = "0.9"
-lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1-native-tls", "builder"] }
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1-native-tls", "builder", "hostname"] }
 base64 = "0.22"
 utf7-imap = "0.3"
 socket2 = "0.5"
@@ -51,3 +51,6 @@ windows = { version = "0.58", features = ["Win32_UI_Shell"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tray-item = { version = "0.10.0", default-features = false, features = ["ksni"] }
+
+[patch.crates-io]
+tauri-plugin-sql = { path = "vendor/tauri-plugin-sql" }

@@ -23,13 +23,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -n "${{ inputs.tag_name }}" ]; then
-            # Called from release-please workflow — tag_name is the full tag (e.g. velo-v0.4.12)
+            # Called from release-please workflow — tag_name is the full tag (e.g. mailpilot-v0.4.12)
             TAG="${{ inputs.tag_name }}"
           elif [ -n "${{ inputs.version }}" ]; then
             # Manual dispatch with a version — look up the actual tag from releases
             TAG=$(gh release list --repo ${{ github.repository }} --json tagName -q "[.[] | select(.tagName | test(\"${{ inputs.version }}\"))][0].tagName")
             if [ -z "$TAG" ]; then
-              TAG="velo-v${{ inputs.version }}"
+              TAG="mailpilot-v${{ inputs.version }}"
             fi
           else
             # Manual dispatch without version — use latest release
@@ -45,17 +45,17 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ steps.version.outputs.tag }}"
-          DMG_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/Velo_${VERSION}_universal.dmg"
+          DMG_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/MailPilot_${VERSION}_universal.dmg"
 
           echo "Downloading DMG from: ${DMG_URL}"
           for i in 1 2 3 4 5; do
-            HTTP_CODE=$(curl -sL -o Velo.dmg -w "%{http_code}" "$DMG_URL")
+            HTTP_CODE=$(curl -sL -o MailPilot.dmg -w "%{http_code}" "$DMG_URL")
             if [ "$HTTP_CODE" = "200" ]; then
               echo "Download succeeded (attempt $i)"
               break
             fi
             echo "Attempt $i failed (HTTP $HTTP_CODE), retrying in 60s..."
-            rm -f Velo.dmg
+            rm -f MailPilot.dmg
             if [ "$i" = "5" ]; then
               echo "::error::DMG not available after 5 attempts"
               exit 1
@@ -63,64 +63,64 @@ jobs:
             sleep 60
           done
 
-          SHA256=$(shasum -a 256 Velo.dmg | awk '{print $1}')
+          SHA256=$(shasum -a 256 MailPilot.dmg | awk '{print $1}')
           echo "SHA256: ${SHA256}"
           echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout tap repository
         uses: actions/checkout@v4
         with:
-          repository: avihaymenahem/homebrew-velo
+          repository: brucefengmm/homebrew-mailpilot
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: homebrew-velo
+          path: homebrew-mailpilot
 
       - name: Update cask definition
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           SHA256="${{ steps.sha.outputs.sha256 }}"
 
-          cat > homebrew-velo/Casks/velo.rb << CASK_EOF
-          cask "velo" do
+          cat > homebrew-mailpilot/Casks/mailpilot.rb << CASK_EOF
+          cask "mailpilot" do
             version "${VERSION}"
             sha256 "${SHA256}"
 
-            url "https://github.com/avihaymenahem/velo/releases/download/velo-v#{version}/Velo_#{version}_universal.dmg",
-                verified: "github.com/avihaymenahem/velo/"
+            url "https://github.com/brucefengmm/MailPilot/releases/download/mailpilot-v#{version}/MailPilot_#{version}_universal.dmg",
+                verified: "github.com/brucefengmm/MailPilot/"
 
-            name "Velo"
-            desc "Fast, beautiful desktop email client"
-            homepage "https://github.com/avihaymenahem/velo"
+            name "MailPilot"
+            desc "AI-first desktop email client"
+            homepage "https://github.com/brucefengmm/MailPilot"
 
             livecheck do
               url :url
               strategy :github_latest
             end
 
-            app "Velo.app"
+            app "MailPilot.app"
 
             caveats <<~EOS
               If the app is not notarized, macOS may block it on first launch.
-              To allow it, right-click Velo.app and select "Open", or run:
-                xattr -cr /Applications/Velo.app
+              To allow it, right-click MailPilot.app and select "Open", or run:
+                xattr -cr /Applications/MailPilot.app
             EOS
 
             zap trash: [
-              "~/Library/Application Support/com.velomail.app",
-              "~/Library/Caches/com.velomail.app",
-              "~/Library/Preferences/com.velomail.app.plist",
-              "~/Library/Saved Application State/com.velomail.app.savedState",
-              "~/Library/WebKit/com.velomail.app",
+              "~/Library/Application Support/com.mailpilot.app",
+              "~/Library/Caches/com.mailpilot.app",
+              "~/Library/Preferences/com.mailpilot.app.plist",
+              "~/Library/Saved Application State/com.mailpilot.app.savedState",
+              "~/Library/WebKit/com.mailpilot.app",
             ]
           end
           CASK_EOF
 
       - name: Commit and push to tap
-        working-directory: homebrew-velo
+        working-directory: homebrew-mailpilot
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Casks/velo.rb
+          git add Casks/mailpilot.rb
           git diff --cached --quiet && echo "No changes to commit" && exit 0
-          git commit -m "Update velo to ${VERSION}"
+          git commit -m "Update mailpilot to ${VERSION}"
           git push

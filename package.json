@@ -1,6 +1,6 @@
 {
-  "name": "velo",
-  "version": "0.4.21",
+  "name": "mailpilot",
+  "version": "0.0.1",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -12,7 +12,7 @@
     "test:watch": "vitest",
     "tauri": "tauri",
     "dev:landing": "npm run dev --prefix landing",
-    "flatpak": "flatpak-builder --force-clean --user --install --install-deps-from=flathub build-dir com.velomail.app.yml"
+    "flatpak": "flatpak-builder --force-clean --user --install --install-deps-from=flathub build-dir com.mailpilot.app.yml"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",

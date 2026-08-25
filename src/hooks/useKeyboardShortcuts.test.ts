@@ -77,11 +77,11 @@ describe("useKeyboardShortcuts", () => {
     vi.clearAllMocks();
   });
 
-  it("dispatches velo-toggle-ask-inbox when 'i' is pressed", () => {
+  it("dispatches mailpilot-toggle-ask-inbox when 'i' is pressed", () => {
     renderHook(() => useKeyboardShortcuts());
 
     const listener = vi.fn();
-    window.addEventListener("velo-toggle-ask-inbox", listener);
+    window.addEventListener("mailpilot-toggle-ask-inbox", listener);
 
     window.dispatchEvent(
       new KeyboardEvent("keydown", { key: "i", bubbles: true }),
@@ -89,14 +89,14 @@ describe("useKeyboardShortcuts", () => {
 
     expect(listener).toHaveBeenCalledTimes(1);
 
-    window.removeEventListener("velo-toggle-ask-inbox", listener);
+    window.removeEventListener("mailpilot-toggle-ask-inbox", listener);
   });
 
-  it("dispatches velo-toggle-command-palette when '/' is pressed", () => {
+  it("dispatches mailpilot-toggle-command-palette when '/' is pressed", () => {
     renderHook(() => useKeyboardShortcuts());
 
     const listener = vi.fn();
-    window.addEventListener("velo-toggle-command-palette", listener);
+    window.addEventListener("mailpilot-toggle-command-palette", listener);
 
     window.dispatchEvent(
       new KeyboardEvent("keydown", { key: "/", bubbles: true }),
@@ -104,14 +104,14 @@ describe("useKeyboardShortcuts", () => {
 
     expect(listener).toHaveBeenCalledTimes(1);
 
-    window.removeEventListener("velo-toggle-command-palette", listener);
+    window.removeEventListener("mailpilot-toggle-command-palette", listener);
   });
 
-  it("dispatches velo-toggle-shortcuts-help when '?' is pressed", () => {
+  it("dispatches mailpilot-toggle-shortcuts-help when '?' is pressed", () => {
     renderHook(() => useKeyboardShortcuts());
 
     const listener = vi.fn();
-    window.addEventListener("velo-toggle-shortcuts-help", listener);
+    window.addEventListener("mailpilot-toggle-shortcuts-help", listener);
 
     window.dispatchEvent(
       new KeyboardEvent("keydown", { key: "?", shiftKey: true, bubbles: true }),
@@ -119,6 +119,6 @@ describe("useKeyboardShortcuts", () => {
 
     expect(listener).toHaveBeenCalledTimes(1);
 
-    window.removeEventListener("velo-toggle-shortcuts-help", listener);
+    window.removeEventListener("mailpilot-toggle-shortcuts-help", listener);
   });
 });

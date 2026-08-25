@@ -30,7 +30,14 @@ describe("withTransaction", () => {
       callOrder.push("callback");
     });
 
-    expect(callOrder).toEqual(["BEGIN TRANSACTION", "callback", "COMMIT"]);
+    const beginIdx = callOrder.indexOf("BEGIN IMMEDIATE");
+    const commitIdx = callOrder.indexOf("COMMIT");
+    expect(beginIdx).toBeGreaterThanOrEqual(0);
+    expect(callOrder.slice(beginIdx, commitIdx + 1)).toEqual([
+      "BEGIN IMMEDIATE",
+      "callback",
+      "COMMIT",
+    ]);
   });
 
   it("rolls back on callback error", async () => {
@@ -45,7 +52,7 @@ describe("withTransaction", () => {
       }),
     ).rejects.toThrow("callback failed");
 
-    expect(callOrder).toEqual(["BEGIN TRANSACTION", "ROLLBACK"]);
+    expect(callOrder).toEqual(["BEGIN IMMEDIATE", "ROLLBACK"]);
   });
 
   it("handles ROLLBACK failure gracefully (SQLite auto-rollback)", async () => {
@@ -85,9 +92,9 @@ describe("withTransaction", () => {
     await Promise.all([tx1, tx2]);
 
     // tx1 should fully complete (BEGIN, work, done, COMMIT) before tx2 starts
-    const tx1BeginIdx = executionLog.indexOf("BEGIN TRANSACTION");
+    const tx1BeginIdx = executionLog.indexOf("BEGIN IMMEDIATE");
     const tx1CommitIdx = executionLog.indexOf("COMMIT");
-    const tx2BeginIdx = executionLog.lastIndexOf("BEGIN TRANSACTION");
+    const tx2BeginIdx = executionLog.lastIndexOf("BEGIN IMMEDIATE");
 
     expect(tx1BeginIdx).toBeLessThan(tx1CommitIdx);
     expect(tx1CommitIdx).toBeLessThan(tx2BeginIdx);

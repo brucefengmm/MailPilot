@@ -21,6 +21,7 @@ import { useComposerStore } from "@/stores/composerStore";
 import { getMessagesForThread } from "@/services/db/messages";
 import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } from "@/services/search/smartFolderQuery";
 import { getDb } from "@/services/db/connection";
+import { isBulkWriteMode } from "@/services/db/bulkWrite";
 import { Archive, Trash2, X, Ban, Filter, ChevronRight, Package, FolderSearch } from "lucide-react";
 import { EmptyState } from "../ui/EmptyState";
 import {
@@ -263,6 +264,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       setThreads([]);
       return;
     }
+    if (isBulkWriteMode()) return;
 
     clearSearch();
     setLoading(true);
@@ -307,7 +309,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   }, [activeAccountId, activeLabel, activeCategory, isSmartFolder, activeSmartFolder, setThreads, setLoading, mapDbThreads, clearSearch]);
 
   const loadMore = useCallback(async () => {
-    if (!activeAccountId || loadingMore || !hasMore) return;
+    if (!activeAccountId || loadingMore || !hasMore || isBulkWriteMode()) return;
 
     setLoadingMore(true);
     try {
@@ -457,11 +459,11 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     let timer: ReturnType<typeof setTimeout> | null = null;
     const handler = () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => loadThreads(), 500);
+      timer = setTimeout(() => loadThreads(), 1500);
     };
-    window.addEventListener("velo-sync-done", handler);
+    window.addEventListener("mailpilot-sync-done", handler);
     return () => {
-      window.removeEventListener("velo-sync-done", handler);
+      window.removeEventListener("mailpilot-sync-done", handler);
       if (timer) clearTimeout(timer);
     };
   }, [loadThreads, activeAccountId, activeLabel]);

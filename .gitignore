@@ -6,6 +6,7 @@ dist/
 build/
 test-buildroot/
 .flatpak-builder/
+AiDocs/
 
 # Tauri
 src-tauri/target/
@@ -73,7 +74,7 @@ coverage/
 # Packaging Artifacts
 build-dir/
 repo/
-velo-*.tar.gz
+mailpilot-*.tar.gz
 *.flatpak
 *.rpm
 *.src.rpm

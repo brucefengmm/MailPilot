@@ -3,9 +3,10 @@ import { initialSync, deltaSync, type SyncProgress } from "./sync";
 import { getAccount, clearAccountHistoryId } from "../db/accounts";
 import { getSetting } from "../db/settings";
 import { getThreadCountForAccount, deleteAllThreadsForAccount } from "../db/threads";
-import { deleteAllMessagesForAccount } from "../db/messages";
-import { imapInitialSync, imapDeltaSync } from "../imap/imapSync";
+import { deleteAllMessagesForAccount, getMessageCountForAccount } from "../db/messages";
+import { imapInitialSync, imapDeltaSync, repairImapThreadsFromDb } from "../imap/imapSync";
 import { clearAllFolderSyncStates } from "../db/folderSyncState";
+import { hasFolderSyncPrefs } from "../db/imapSyncPrefs";
 import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import { hasCalendarSupport, getCalendarProvider } from "../calendar/providerFactory";
 import { getVisibleCalendars, upsertCalendar, updateCalendarSyncToken } from "../db/calendars";
@@ -34,6 +35,49 @@ export type SyncStatusCallback = (
 ) => void;
 
 let statusCallback: SyncStatusCallback | null = null;
+
+/** Gmail/CalDAV only — IMAP accounts never auto-sync; user clicks Sync now. */
+export async function filterAutoSyncAccountIds(
+  accountIds: string[],
+): Promise<string[]> {
+  const result: string[] = [];
+  for (const id of accountIds) {
+    const account = await getAccount(id);
+    if (!account) continue;
+    if (account.provider === "imap") continue;
+    result.push(id);
+  }
+  return result;
+}
+
+/** Manual sync — skip IMAP accounts that have no folder sync settings saved yet. */
+async function filterManualSyncAccountIds(
+  accountIds: string[],
+): Promise<string[]> {
+  const result: string[] = [];
+  for (const id of accountIds) {
+    const account = await getAccount(id);
+    if (!account) continue;
+    if (account.provider === "imap") {
+      if (await hasFolderSyncPrefs(id)) {
+        result.push(id);
+      } else {
+        console.log(
+          `[syncManager] Skipping IMAP account ${id} — configure sync settings first`,
+        );
+        statusCallback?.(
+          id,
+          "error",
+          undefined,
+          "Configure IMAP sync settings before syncing",
+        );
+      }
+    } else {
+      result.push(id);
+    }
+  }
+  return result;
+}
 
 export function onSyncStatus(cb: SyncStatusCallback): () => void {
   statusCallback = cb;
@@ -89,6 +133,10 @@ async function syncImapAccount(accountId: string): Promise<void> {
     throw new Error("Account not found");
   }
 
+  if (!(await hasFolderSyncPrefs(accountId))) {
+    throw new Error("Configure IMAP sync settings before syncing");
+  }
+
   // Refresh OAuth2 token before syncing (if applicable)
   if (account.auth_method === "oauth2") {
     await ensureFreshToken(account);
@@ -101,22 +149,31 @@ async function syncImapAccount(accountId: string): Promise<void> {
     // Delta sync — IMAP uses folder-level UID tracking
     const result = await imapDeltaSync(accountId, syncDays);
 
-    // Recovery: if delta sync found nothing new but the DB has no threads,
-    // the previous initial sync likely failed or stored data incorrectly.
-    // Force a full re-sync to recover.
+    // Recovery: if delta sync found nothing new but thread state is broken,
+    // rebuild threads from existing messages or force a full re-sync.
     if (result.messages.length === 0) {
       const threadCount = await getThreadCountForAccount(accountId);
       if (threadCount === 0) {
-        console.warn(`[syncManager] IMAP delta sync returned 0 new messages and DB has 0 threads for ${accountId} — forcing full re-sync`);
-        await clearAccountHistoryId(accountId);
-        await clearAllFolderSyncStates(accountId);
-        await imapInitialSync(accountId, syncDays, (progress) => {
-          statusCallback?.(accountId, "syncing", {
-            phase: mapImapPhase(progress.phase),
-            current: progress.current,
-            total: progress.total,
+        const messageCount = await getMessageCountForAccount(accountId);
+        if (messageCount > 0) {
+          console.warn(
+            `[syncManager] IMAP delta sync: ${messageCount} messages but 0 threads for ${accountId} — repairing`,
+          );
+          await repairImapThreadsFromDb(accountId);
+        } else {
+          console.warn(
+            `[syncManager] IMAP delta sync returned 0 new messages and DB has 0 threads for ${accountId} — forcing full re-sync`,
+          );
+          await clearAccountHistoryId(accountId);
+          await clearAllFolderSyncStates(accountId);
+          await imapInitialSync(accountId, syncDays, (progress) => {
+            statusCallback?.(accountId, "syncing", {
+              phase: mapImapPhase(progress.phase),
+              current: progress.current,
+              total: progress.total,
+            });
           });
-        });
+        }
       }
     }
   } else {
@@ -199,7 +256,7 @@ async function syncCalendarForAccount(accountId: string): Promise<void> {
     }
 
     // Emit event for UI update
-    window.dispatchEvent(new CustomEvent("velo-calendar-sync-done"));
+    window.dispatchEvent(new CustomEvent("mailpilot-calendar-sync-done"));
   } catch (err) {
     console.warn(`[syncManager] Calendar sync failed for account ${accountId}:`, err);
   }
@@ -283,7 +340,9 @@ async function runSync(accountIds: string[]): Promise<void> {
  * Run sync for a single account, queuing if already running.
  */
 export async function syncAccount(accountId: string): Promise<void> {
-  return runSync([accountId]);
+  const ids = await filterManualSyncAccountIds([accountId]);
+  if (ids.length === 0) return;
+  return runSync(ids);
 }
 
 /**
@@ -295,14 +354,17 @@ export async function syncAccount(accountId: string): Promise<void> {
 export function startBackgroundSync(accountIds: string[], skipImmediateSync = false): void {
   stopBackgroundSync();
 
+  const runAutoSync = async () => {
+    const ids = await filterAutoSyncAccountIds(accountIds);
+    if (ids.length > 0) await runSync(ids);
+  };
+
   if (!skipImmediateSync) {
-    // Immediate sync
-    runSync(accountIds);
+    void runAutoSync();
   }
 
-  // Periodic sync
   syncTimer = setInterval(() => {
-    runSync(accountIds);
+    void runAutoSync();
   }, SYNC_INTERVAL_MS);
 }
 
@@ -321,7 +383,8 @@ export function stopBackgroundSync(): void {
  * Waits for completion even if a background sync is in progress.
  */
 export async function triggerSync(accountIds: string[]): Promise<void> {
-  await runSync(accountIds);
+  const ids = await filterManualSyncAccountIds(accountIds);
+  if (ids.length > 0) await runSync(ids);
 }
 
 /**
@@ -329,10 +392,22 @@ export async function triggerSync(accountIds: string[]): Promise<void> {
  * This re-downloads all threads from scratch.
  */
 export async function forceFullSync(accountIds: string[]): Promise<void> {
+  const gmailIds: string[] = [];
+
   for (const id of accountIds) {
-    await clearAccountHistoryId(id);
+    const account = await getAccount(id);
+    if (account?.provider === "imap") {
+      // IMAP must wipe local rows first — otherwise upserts hit old full-body messages.
+      await resyncAccount(id);
+    } else {
+      gmailIds.push(id);
+      await clearAccountHistoryId(id);
+    }
   }
-  await runSync(accountIds);
+
+  if (gmailIds.length > 0) {
+    await runSync(gmailIds);
+  }
 }
 
 /**

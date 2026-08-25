@@ -5,6 +5,7 @@ import { InlineAttachmentPreview } from "./InlineAttachmentPreview";
 import { AttachmentList, getAttachmentsForMessage } from "./AttachmentList";
 import type { DbMessage } from "@/services/db/messages";
 import type { DbAttachment } from "@/services/db/attachments";
+import { ensureMessageBodyLoaded } from "@/services/imap/messageBodyLoader";
 import { MailMinus } from "lucide-react";
 import { AuthBadge } from "./AuthBadge";
 import { AuthWarningBanner } from "./AuthWarningBanner";
@@ -23,9 +24,46 @@ interface MessageItemProps {
 
 export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ message, isLast, blockImages, senderAllowlisted, accountId, threadId, isSpam, focused, onContextMenu }, ref) {
   const [expanded, setExpanded] = useState(isLast);
+  const [displayMessage, setDisplayMessage] = useState(message);
+  const [bodyLoading, setBodyLoading] = useState(false);
+  const [bodyLoadError, setBodyLoadError] = useState(false);
   const [attachments, setAttachments] = useState<DbAttachment[]>([]);
   const [authBannerDismissed, setAuthBannerDismissed] = useState(false);
   const attachmentsLoadedRef = useRef(false);
+
+  useEffect(() => {
+    setDisplayMessage(message);
+    setBodyLoadError(false);
+  }, [message]);
+
+  const needsBodyFetch =
+    !displayMessage.body_cached &&
+    !displayMessage.body_html &&
+    !displayMessage.body_text;
+
+  useEffect(() => {
+    if (!expanded || !needsBodyFetch) return;
+
+    let cancelled = false;
+    setBodyLoading(true);
+    setBodyLoadError(false);
+
+    ensureMessageBodyLoaded(displayMessage)
+      .then((loaded) => {
+        if (!cancelled) setDisplayMessage(loaded);
+      })
+      .catch((err) => {
+        console.error("Failed to load message body:", err);
+        if (!cancelled) setBodyLoadError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setBodyLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [expanded, displayMessage.id, needsBodyFetch]);
 
   const loadAttachments = async () => {
     if (attachmentsLoadedRef.current) return;
@@ -64,16 +102,16 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
   // Scan HTML body for cid: references — these images are already rendered inline
   const referencedCids = useMemo(() => {
     const cids = new Set<string>();
-    if (!message.body_html) return cids;
+    if (!displayMessage.body_html) return cids;
     const regex = /\bcid:([^"'\s)]+)/gi;
     let m;
-    while ((m = regex.exec(message.body_html)) !== null) {
+    while ((m = regex.exec(displayMessage.body_html)) !== null) {
       cids.add(m[1]!);
     }
     return cids;
-  }, [message.body_html]);
+  }, [displayMessage.body_html]);
 
-  const fromDisplay = message.from_name ?? message.from_address ?? "Unknown";
+  const fromDisplay = displayMessage.from_name ?? displayMessage.from_address ?? "Unknown";
 
   return (
     <div ref={ref} className={`border-b border-border-secondary last:border-b-0 ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""} ${focused ? "ring-2 ring-inset ring-accent/50" : ""}`} onContextMenu={onContextMenu}>
@@ -90,23 +128,23 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
             <div className="min-w-0">
               <span className="text-sm font-medium text-text-primary truncate flex items-center gap-1">
                 {fromDisplay}
-                <AuthBadge authResults={message.auth_results} />
+                <AuthBadge authResults={displayMessage.auth_results} />
               </span>
               {!expanded && (
                 <span className="text-xs text-text-tertiary truncate block">
-                  {message.snippet}
+                  {displayMessage.snippet}
                 </span>
               )}
             </div>
           </div>
           <span className="text-xs text-text-tertiary whitespace-nowrap shrink-0 ml-2">
-            {formatFullDate(message.date)}
+            {formatFullDate(displayMessage.date)}
           </span>
         </div>
         {expanded && (
           <div className="mt-1 text-xs text-text-tertiary">
-            {message.to_addresses && (
-              <span>To: {message.to_addresses}</span>
+            {displayMessage.to_addresses && (
+              <span>To: {displayMessage.to_addresses}</span>
             )}
           </div>
         )}
@@ -117,32 +155,36 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
         <div className="px-4 pb-4">
           {!authBannerDismissed && (
             <AuthWarningBanner
-              authResults={message.auth_results}
-              senderAddress={message.from_address}
+              authResults={displayMessage.auth_results}
+              senderAddress={displayMessage.from_address}
               onDismiss={() => setAuthBannerDismissed(true)}
             />
           )}
 
-          {message.list_unsubscribe && (
+          {displayMessage.list_unsubscribe && (
             <UnsubscribeLink
-              header={message.list_unsubscribe}
-              postHeader={message.list_unsubscribe_post}
-              accountId={accountId ?? message.account_id}
-              threadId={threadId ?? message.thread_id}
-              fromAddress={message.from_address}
-              fromName={message.from_name}
+              header={displayMessage.list_unsubscribe}
+              postHeader={displayMessage.list_unsubscribe_post}
+              accountId={accountId ?? displayMessage.account_id}
+              threadId={threadId ?? displayMessage.thread_id}
+              fromAddress={displayMessage.from_address}
+              fromName={displayMessage.from_name}
             />
           )}
 
-          {blockImages != null ? (
+          {bodyLoading ? (
+            <div className="py-8 text-center text-text-tertiary text-sm">Loading message...</div>
+          ) : bodyLoadError ? (
+            <div className="py-8 text-center text-danger text-sm">Failed to load message body.</div>
+          ) : blockImages != null ? (
             <EmailRenderer
-              html={message.body_html}
-              text={message.body_text}
+              html={displayMessage.body_html}
+              text={displayMessage.body_text}
               blockImages={blockImages}
-              senderAddress={message.from_address}
-              accountId={message.account_id}
+              senderAddress={displayMessage.from_address}
+              accountId={displayMessage.account_id}
               senderAllowlisted={senderAllowlisted}
-              messageId={message.id}
+              messageId={displayMessage.id}
               inlineAttachments={attachments.filter((a) => a.content_id)}
             />
           ) : (
@@ -150,16 +192,16 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
           )}
 
           <InlineAttachmentPreview
-            accountId={message.account_id}
-            messageId={message.id}
+            accountId={displayMessage.account_id}
+            messageId={displayMessage.id}
             attachments={attachments}
             referencedCids={referencedCids}
             onAttachmentClick={() => {}}
           />
 
           <AttachmentList
-            accountId={message.account_id}
-            messageId={message.id}
+            accountId={displayMessage.account_id}
+            messageId={displayMessage.id}
             attachments={attachments}
             referencedCids={referencedCids}
           />

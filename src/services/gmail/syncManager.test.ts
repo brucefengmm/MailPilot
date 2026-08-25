@@ -45,6 +45,9 @@ vi.mock("../db/calendarEvents", () => ({
   upsertCalendarEvent: vi.fn(),
   deleteEventByRemoteId: vi.fn(),
 }));
+vi.mock("../db/imapSyncPrefs", () => ({
+  hasFolderSyncPrefs: vi.fn().mockResolvedValue(true),
+}));
 
 // Import after mocks
 import {

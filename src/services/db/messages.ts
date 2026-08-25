@@ -1,4 +1,6 @@
+import type Database from "@tauri-apps/plugin-sql";
 import { getDb } from "./connection";
+import { rebuildFtsFull } from "./bulkWrite";
 
 export interface DbMessage {
   id: string;
@@ -28,6 +30,30 @@ export interface DbMessage {
   in_reply_to_header: string | null;
   imap_uid: number | null;
   imap_folder: string | null;
+}
+
+export async function getMessageCountForAccount(
+  accountId: string,
+): Promise<number> {
+  const db = await getDb();
+  const rows = await db.select<{ count: number }[]>(
+    "SELECT COUNT(*) as count FROM messages WHERE account_id = $1",
+    [accountId],
+  );
+  return rows[0]?.count ?? 0;
+}
+
+/** Load message headers for rebuilding IMAP thread/label state from the DB. */
+export async function getMessagesForImapThreadRepair(
+  accountId: string,
+): Promise<DbMessage[]> {
+  const db = await getDb();
+  return db.select<DbMessage[]>(
+    `SELECT id, account_id, thread_id, subject, snippet, date, is_read, is_starred,
+            message_id_header, references_header, in_reply_to_header, imap_folder
+     FROM messages WHERE account_id = $1`,
+    [accountId],
+  );
 }
 
 export async function getMessagesForThread(
@@ -116,6 +142,32 @@ export async function upsertMessage(msg: {
   );
 }
 
+/** Persist fetched body content; FTS index updates via messages_au trigger. */
+export async function updateMessageBody(
+  accountId: string,
+  messageId: string,
+  bodyHtml: string | null,
+  bodyText: string | null,
+): Promise<void> {
+  const db = await getDb();
+  const sql = `UPDATE messages
+     SET body_html = $1, body_text = $2, body_cached = 1
+     WHERE account_id = $3 AND id = $4`;
+  const params = [bodyHtml, bodyText, accountId, messageId];
+
+  try {
+    await db.execute(sql, params);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes("malformed") && !msg.includes("FTS")) {
+      throw err;
+    }
+    console.warn("[messages] FTS corruption detected during body save — rebuilding index");
+    await rebuildFtsFull();
+    await db.execute(sql, params);
+  }
+}
+
 export async function deleteMessage(
   accountId: string,
   messageId: string,
@@ -131,17 +183,42 @@ export async function updateMessageThreadIds(
   accountId: string,
   messageIds: string[],
   threadId: string,
+  db?: Database,
 ): Promise<void> {
-  const db = await getDb();
+  const conn = db ?? await getDb();
   // SQLite variable limit is 999; process in chunks
   for (let i = 0; i < messageIds.length; i += 500) {
     const chunk = messageIds.slice(i, i + 500);
     const placeholders = chunk.map((_, idx) => `$${idx + 3}`).join(", ");
-    await db.execute(
+    await conn.execute(
       `UPDATE messages SET thread_id = $1 WHERE account_id = $2 AND id IN (${placeholders})`,
       [threadId, accountId, ...chunk],
     );
   }
+}
+
+/** Batch lookup of message → thread_id for sync skip logic. */
+export async function getMessageThreadIdMap(
+  accountId: string,
+  messageIds: string[],
+  db?: Database,
+): Promise<Map<string, string>> {
+  const conn = db ?? await getDb();
+  const result = new Map<string, string>();
+  if (messageIds.length === 0) return result;
+
+  for (let i = 0; i < messageIds.length; i += 200) {
+    const chunk = messageIds.slice(i, i + 200);
+    const placeholders = chunk.map((_, idx) => `$${idx + 2}`).join(", ");
+    const rows = await conn.select<{ id: string; thread_id: string }[]>(
+      `SELECT id, thread_id FROM messages WHERE account_id = $1 AND id IN (${placeholders})`,
+      [accountId, ...chunk],
+    );
+    for (const row of rows) {
+      result.set(row.id, row.thread_id);
+    }
+  }
+  return result;
 }
 
 export async function deleteAllMessagesForAccount(

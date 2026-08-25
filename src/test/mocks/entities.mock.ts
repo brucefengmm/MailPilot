@@ -113,6 +113,7 @@ export function createMockGmailAccount(
     smtp_port: null,
     smtp_security: null,
     auth_method: "oauth",
+    smtp_auth_method: null,
     imap_password: null,
     oauth_provider: null,
     oauth_client_id: null,
@@ -125,6 +126,9 @@ export function createMockGmailAccount(
     caldav_home_url: null,
     calendar_provider: null,
     accept_invalid_certs: 0,
+    imap_sync_mode: "days",
+    imap_sync_days: null,
+    imap_sync_since: null,
     ...overrides,
   };
 }
@@ -153,6 +157,7 @@ export function createMockImapAccount(
     smtp_port: 465,
     smtp_security: "tls",
     auth_method: "password",
+    smtp_auth_method: null,
     imap_password: "enc:secret-password",
     oauth_provider: null,
     oauth_client_id: null,
@@ -165,6 +170,9 @@ export function createMockImapAccount(
     caldav_home_url: null,
     calendar_provider: null,
     accept_invalid_certs: 0,
+    imap_sync_mode: "days",
+    imap_sync_days: null,
+    imap_sync_since: null,
     ...overrides,
   };
 }
@@ -193,6 +201,7 @@ export function createMockDbAccount(
     smtp_port: 587,
     smtp_security: "starttls",
     auth_method: "password",
+    smtp_auth_method: null,
     imap_password: "secret123",
     oauth_provider: null,
     oauth_client_id: null,
@@ -205,6 +214,9 @@ export function createMockDbAccount(
     caldav_home_url: null,
     calendar_provider: null,
     accept_invalid_certs: 0,
+    imap_sync_mode: "days",
+    imap_sync_days: null,
+    imap_sync_since: null,
     ...overrides,
   };
 }

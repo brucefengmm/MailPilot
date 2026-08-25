@@ -6,7 +6,8 @@
 
 import { exists, readTextFile, writeTextFile, mkdir, BaseDirectory } from "@tauri-apps/plugin-fs";
 
-const KEY_FILE_NAME = "velo.key";
+const KEY_FILE_NAME = "mailpilot.key";
+const LEGACY_KEY_FILE_NAME = "velo.key";
 const ALGORITHM = "AES-GCM";
 const KEY_LENGTH = 256;
 const IV_LENGTH = 12;
@@ -52,6 +53,8 @@ async function getOrCreateKey(): Promise<CryptoKey> {
   let rawKeyB64: string;
   if (await exists(KEY_FILE_NAME, FS_OPTIONS)) {
     rawKeyB64 = (await readTextFile(KEY_FILE_NAME, FS_OPTIONS)).trim();
+  } else if (await exists(LEGACY_KEY_FILE_NAME, FS_OPTIONS)) {
+    rawKeyB64 = (await readTextFile(LEGACY_KEY_FILE_NAME, FS_OPTIONS)).trim();
   } else {
     // Generate a new random key
     const rawKey = new Uint8Array(KEY_LENGTH / 8);

@@ -1,15 +1,21 @@
 use crate::imap::client as imap_client;
 use crate::imap::types::{
     DeltaCheckRequest, DeltaCheckResult, ImapConfig, ImapFetchResult, ImapFolder,
-    ImapFolderSearchResult, ImapFolderStatus, ImapFolderSyncResult, ImapMessage,
+    ImapFolderSearchResult, ImapFolderStatus, ImapFolderSyncResult, ImapFolderSyncSummary,
+    ImapMessage, ImapSyncBatchEvent,
 };
 use crate::smtp::client as smtp_client;
 use crate::smtp::types::{SmtpConfig, SmtpSendResult};
+use tauri::{AppHandle, Emitter};
 
 // ---------- IMAP commands ----------
 
 #[tauri::command]
 pub async fn imap_test_connection(config: ImapConfig) -> Result<String, String> {
+    log::info!(
+        "command imap_test_connection invoked for {}:{} security={} auth={}",
+        config.host, config.port, config.security, config.auth_method
+    );
     imap_client::test_connection(&config).await
 }
 
@@ -37,6 +43,15 @@ pub async fn imap_fetch_messages(
         .map(|u| u.to_string())
         .collect::<Vec<_>>()
         .join(",");
+
+    // Yandex Team servers always return empty via async-imap — skip the wasted connection.
+    if imap_client::prefer_raw_imap_fetch(&config.host) {
+        log::info!(
+            "Using raw TCP fetch directly for {} (async-imap incompatible)",
+            config.host
+        );
+        return imap_client::raw_fetch_messages(&config, &folder, &uid_set).await;
+    }
 
     let mut session = imap_client::connect(&config).await?;
     let result = imap_client::fetch_messages(&mut session, &folder, &uid_set).await;
@@ -82,10 +97,7 @@ pub async fn imap_fetch_message_body(
     folder: String,
     uid: u32,
 ) -> Result<ImapMessage, String> {
-    let mut session = imap_client::connect(&config).await?;
-    let message = imap_client::fetch_message_body(&mut session, &folder, uid).await?;
-    let _ = session.logout().await;
-    Ok(message)
+    imap_client::fetch_message_body_resolved(&config, &folder, uid).await
 }
 
 #[tauri::command]
@@ -266,6 +278,61 @@ pub async fn imap_sync_folder(
     result
 }
 
+/// Single-connection folder sync that emits `imap-sync-folder-batch` events per fetch batch.
+/// Message bodies are delivered via events; the command returns a lightweight summary.
+#[tauri::command]
+pub async fn imap_sync_folder_streaming(
+    app: AppHandle,
+    config: ImapConfig,
+    account_id: String,
+    folder: String,
+    batch_size: u32,
+    since_date: Option<String>,
+) -> Result<ImapFolderSyncSummary, String> {
+    let emit_batch = |messages: Vec<ImapMessage>,
+                      batch_index: u32,
+                      fetched_count: u32,
+                      total_uids: u32,
+                      is_last: bool,
+                      folder_status: &ImapFolderStatus| {
+        let event = ImapSyncBatchEvent {
+            account_id: account_id.clone(),
+            folder: folder.clone(),
+            messages,
+            fetched_count,
+            total_uids,
+            batch_index,
+            is_last_batch: is_last,
+            folder_status: folder_status.clone(),
+        };
+        app.emit("imap-sync-folder-batch", event)
+            .map_err(|e| format!("Failed to emit sync batch event: {e}"))
+    };
+
+    if imap_client::prefer_raw_imap_fetch(&config.host) {
+        return imap_client::raw_sync_folder_with_batches(
+            &config,
+            &folder,
+            batch_size,
+            since_date,
+            emit_batch,
+        )
+        .await;
+    }
+
+    let mut session = imap_client::connect(&config).await?;
+    let result = imap_client::sync_folder_with_batches(
+        &mut session,
+        &folder,
+        batch_size,
+        since_date,
+        emit_batch,
+    )
+    .await;
+    let _ = session.logout().await;
+    result
+}
+
 #[tauri::command]
 pub async fn imap_raw_fetch_diagnostic(
     config: ImapConfig,
@@ -298,5 +365,9 @@ pub async fn smtp_send_email(
 
 #[tauri::command]
 pub async fn smtp_test_connection(config: SmtpConfig) -> Result<SmtpSendResult, String> {
+    log::info!(
+        "command smtp_test_connection invoked for {}:{} security={} auth={}",
+        config.host, config.port, config.security, config.auth_method
+    );
     smtp_client::test_connection(&config).await
 }

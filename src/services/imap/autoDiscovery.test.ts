@@ -173,6 +173,25 @@ describe("discoverSettings", () => {
     expect(result).not.toBeNull();
     expect(result!.settings.imapHost).toBe("imap.mail.me.com");
   });
+
+  it("returns Yandex public mail settings", () => {
+    const result = discoverSettings("user@yandex.ru");
+    expect(result).not.toBeNull();
+    expect(result!.settings.imapHost).toBe("imap.yandex.com");
+    expect(result!.settings.smtpHost).toBe("smtp.yandex.com");
+    expect(result!.settings.smtpPort).toBe(465);
+    expect(result!.settings.smtpSecurity).toBe("ssl");
+  });
+
+  it("returns Yandex Team corporate settings", () => {
+    const result = discoverSettings("user@yandex-team.ru");
+    expect(result).not.toBeNull();
+    expect(result!.settings.imapHost).toBe("imap-mob.yandex-team.ru");
+    expect(result!.settings.smtpHost).toBe("smtp.yandex-team.ru");
+    expect(result!.settings.smtpPort).toBe(465);
+    expect(result!.settings.smtpSecurity).toBe("ssl");
+    expect(result!.smtpAuthMethod).toBe("oauth2");
+  });
 });
 
 describe("getDefaultSmtpPort", () => {

@@ -15,6 +15,8 @@ interface WellKnownProvider {
   settings: ServerSettings;
   /** Supported authentication methods, in preference order */
   authMethods: AuthMethod[];
+  /** SMTP auth when it differs from IMAP (e.g. Yandex Team: IMAP password + SMTP OAuth token) */
+  smtpAuthMethod?: AuthMethod;
   /** OAuth provider ID (matches oauth/providers.ts registry) */
   oauthProviderId?: string;
   /** Accept self-signed TLS certificates (for local mail bridges) */
@@ -129,6 +131,33 @@ const wellKnownProviders: WellKnownProvider[] = [
     authMethods: ["password"],
   },
   {
+    // Yandex Mail (public)
+    domains: ["yandex.ru", "yandex.com", "ya.ru"],
+    settings: {
+      imapHost: "imap.yandex.com",
+      imapPort: 993,
+      imapSecurity: "ssl",
+      smtpHost: "smtp.yandex.com",
+      smtpPort: 465,
+      smtpSecurity: "ssl",
+    },
+    authMethods: ["password"],
+  },
+  {
+    // Yandex 360 for Business / corporate domains
+    domains: ["yandex-team.ru", "yandex-team.com"],
+    settings: {
+      imapHost: "imap-mob.yandex-team.ru",
+      imapPort: 993,
+      imapSecurity: "ssl",
+      smtpHost: "smtp.yandex-team.ru",
+      smtpPort: 465,
+      smtpSecurity: "ssl",
+    },
+    authMethods: ["password"],
+    smtpAuthMethod: "oauth2",
+  },
+  {
     domains: ["mail.ru", "inbox.ru", "list.ru", "bk.ru"],
     settings: {
       imapHost: "imap.mail.ru",
@@ -168,6 +197,8 @@ export function extractDomain(email: string): string | null {
 export interface WellKnownProviderResult {
   settings: ServerSettings;
   authMethods: AuthMethod[];
+  /** SMTP auth when it differs from IMAP */
+  smtpAuthMethod?: AuthMethod;
   oauthProviderId?: string;
   acceptInvalidCerts?: boolean;
 }
@@ -185,6 +216,7 @@ export function findWellKnownProvider(
       return {
         settings: { ...provider.settings },
         authMethods: provider.authMethods,
+        smtpAuthMethod: provider.smtpAuthMethod,
         oauthProviderId: provider.oauthProviderId,
         acceptInvalidCerts: provider.acceptInvalidCerts,
       };

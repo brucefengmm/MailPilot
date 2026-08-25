@@ -119,7 +119,7 @@ export function MoveToFolderDialog({
       }
 
       // Refresh thread list
-      window.dispatchEvent(new Event("velo-sync-done"));
+      window.dispatchEvent(new Event("mailpilot-sync-done"));
     },
     [activeAccountId, threadIds, isImap, onClose],
   );

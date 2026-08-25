@@ -47,7 +47,7 @@ async function checkFollowUpReminders(): Promise<void> {
   }
 
   // Refresh UI
-  window.dispatchEvent(new Event("velo-sync-done"));
+  window.dispatchEvent(new Event("mailpilot-sync-done"));
 }
 
 const followUpChecker = createBackgroundChecker("FollowUp", checkFollowUpReminders);
