@@ -2,9 +2,9 @@
 name = "mailpilot"
 version = "0.0.2" # x-release-please-version
 description = "Email at the speed of thought"
-authors = ["Avihay"]
+authors = ["MailPilot Contributors", "Avihay Menahem"]
 license = "Apache-2.0"
-repository = ""
+repository = "https://github.com/brucefengmm/MailPilot"
 edition = "2021"
 rust-version = "1.77.2"
 

@@ -7,6 +7,7 @@
 import { exists, readTextFile, writeTextFile, mkdir, BaseDirectory } from "@tauri-apps/plugin-fs";
 
 const KEY_FILE_NAME = "mailpilot.key";
+/** Legacy filename from upstream Velo — kept for decrypting existing local credentials after rename. */
 const LEGACY_KEY_FILE_NAME = "velo.key";
 const ALGORITHM = "AES-GCM";
 const KEY_LENGTH = 256;

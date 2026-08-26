@@ -33,7 +33,16 @@ export function OpenSource() {
           viewport={{ once: true }}
           transition={{ duration: 0.5, delay: 0.05 }}
         >
-          Every line of code is public, licensed under Apache 2.0. No telemetry, no data collection, no cloud dependency. Your email stays on your machine.
+          Every line of code is public, licensed under Apache 2.0. MailPilot is derived from{" "}
+          <a
+            href="https://github.com/avihaymenahem/velo"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-accent hover:text-accent-hover transition-colors"
+          >
+            Velo
+          </a>
+          . No telemetry, no data collection, no cloud dependency. Your email stays on your machine.
         </motion.p>
 
         <motion.div

@@ -112,6 +112,8 @@ Use the [feature request template](https://github.com/brucefengmm/MailPilot/issu
 
 By contributing, you agree that your contributions will be licensed under the [Apache-2.0 License](LICENSE).
 
+MailPilot is derived from [Velo](https://github.com/avihaymenahem/velo) (Copyright 2025 Velo Mail). See [NOTICE](NOTICE) for attribution requirements when distributing modified versions.
+
 ## Packaging
 
 This project uses GitHub Actions to build Flatpak and RPM packages for Linux distributions. To test these builds locally, follow the instructions below.

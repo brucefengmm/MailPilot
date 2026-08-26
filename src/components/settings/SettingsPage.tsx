@@ -1937,7 +1937,14 @@ function AboutTab() {
             </button>
           </p>
           <p className="text-xs text-text-tertiary leading-relaxed">
-            Copyright 2025 MailPilot. You may use, distribute, and modify this software under the terms of the Apache 2.0 license. This software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
+            Copyright 2025 Velo Mail. Copyright 2025–2026 MailPilot Contributors. MailPilot is derived from{" "}
+            <button
+              onClick={() => openExternal("https://github.com/avihaymenahem/velo")}
+              className="text-accent hover:text-accent-hover transition-colors"
+            >
+              Velo
+            </button>
+            {" "}(Apache-2.0). You may use, distribute, and modify this software under the terms of the Apache 2.0 license. This software is distributed on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
           </p>
         </div>
       </Section>

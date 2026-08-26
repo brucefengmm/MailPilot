@@ -55,7 +55,10 @@ rpm2cpio %{_builddir}/%{name}-%{version}/src-tauri/target/release/bundle/rpm/*.r
 %{_datadir}/icons/hicolor/128x128/apps/%{app_name}.png
 %{_datadir}/icons/hicolor/256x256/apps/%{app_name}.png
 %license LICENSE
+%doc NOTICE
 
 %changelog
+* Tue Aug 26 2026 MailPilot Contributors - 0.0.2-1
+- MailPilot packaging; Apache-2.0 LICENSE and NOTICE included
 * Fri Feb 20 2026 Camden Bock <camden.bock@maine.edu> - 0.4.10-1
-- Initial RPM packaging
+- Initial RPM packaging (Velo lineage)

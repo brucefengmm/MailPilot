@@ -7,6 +7,7 @@
   <summary>AI-first desktop email client</summary>
   <description>
     <p>MailPilot is an AI-first desktop email client built with modern web technologies.</p>
+    <p>Derived from Velo (https://github.com/avihaymenahem/velo). See NOTICE in the package documentation for attribution.</p>
   </description>
   <url type="homepage">https://github.com/brucefengmm/MailPilot</url>
   <url type="bugtracker">https://github.com/brucefengmm/MailPilot/issues</url>

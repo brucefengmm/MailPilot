@@ -200,7 +200,13 @@ npm run tauri build
 
 ## License
 
-[Apache-2.0](LICENSE)
+MailPilot is licensed under the [Apache License 2.0](LICENSE). See also [NOTICE](NOTICE) for third-party and upstream attribution.
+
+## Acknowledgments
+
+MailPilot is a derivative work of [Velo](https://github.com/avihaymenahem/velo) (Copyright 2025 Velo Mail), an open-source desktop email client by Avihay Menahem. Velo is licensed under Apache-2.0. We thank the Velo project and its contributors for the foundation this project builds upon.
+
+MailPilot is an independent project and is not affiliated with, endorsed by, or sponsored by Velo or its original authors. **Velo** and **Velo Mail** are trademarks of their respective owners; MailPilot does not claim those names.
 
 ---
 

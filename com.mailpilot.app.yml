@@ -28,6 +28,8 @@ modules:
       - install -Dm644 src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/com.mailpilot.app.png
       - install -Dm644 com.mailpilot.app.desktop /app/share/applications/com.mailpilot.app.desktop
       - install -Dm644 com.mailpilot.app.metainfo.xml /app/share/metainfo/com.mailpilot.app.metainfo.xml
+      - install -Dm644 LICENSE /app/share/doc/com.mailpilot.app/LICENSE
+      - install -Dm644 NOTICE /app/share/doc/com.mailpilot.app/NOTICE
     sources:
       - type: dir
         path: .
