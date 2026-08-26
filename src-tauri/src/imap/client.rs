@@ -9,10 +9,15 @@ use tokio_native_tls::TlsStream;
 
 use super::types::*;
 
-/// Some IMAP servers (e.g. Yandex Team) return empty responses via async-imap.
-pub fn prefer_raw_imap_fetch(host: &str) -> bool {
+/// Returns true for IMAP hosts where async-imap's response parser is known to be
+/// unreliable (empty SEARCH results / empty FETCH bodies). For these hosts we
+/// route FETCH through raw TCP and fall back from UID range SEARCH to ALL.
+pub fn async_imap_unreliable(host: &str) -> bool {
     let h = host.to_lowercase();
-    h.contains("yandex-team") || h.contains("yandex.ru")
+    h.contains("yandex-team")
+        || h.contains("yandex.ru")
+        || h.contains("qq.com")
+        || h.contains("imap.qq.com")
 }
 
 // ---------- Timeout constants ----------
@@ -487,7 +492,7 @@ pub async fn fetch_message_body_resolved(
 ) -> Result<ImapMessage, String> {
     let uid_str = uid.to_string();
 
-    if prefer_raw_imap_fetch(&config.host) {
+    if async_imap_unreliable(&config.host) {
         log::info!(
             "Using raw TCP fetch for message body on {} (async-imap incompatible)",
             config.host
@@ -837,6 +842,7 @@ pub async fn fetch_raw_message(
 /// with a single connection that checks all folders.
 pub async fn delta_check_folders(
     session: &mut ImapSession,
+    host: &str,
     folders: &[DeltaCheckRequest],
 ) -> Result<Vec<DeltaCheckResult>, String> {
     let mut results = Vec::with_capacity(folders.len());
@@ -867,20 +873,78 @@ pub async fn delta_check_folders(
             continue;
         }
 
-        // UID SEARCH for messages newer than last_uid
-        let query = format!("{}:*", req.last_uid + 1);
+        // UID SEARCH for messages newer than last_uid.
+        // NOTE: some servers (e.g. QQ) mis-parse UID range queries and return an
+        // empty set for `UID SEARCH n:*` AND `UID SEARCH n:4294967295`, while their
+        // `UID SEARCH ALL` response is correct. For hosts in `async_imap_unreliable`
+        // (known to have async-imap parsing quirks), when the range returns 0 UIDs
+        // we fall back to ALL + client-side filter. On hard failure we also fall
+        // back to ALL.
+        let query = format!("{}:4294967295", req.last_uid + 1);
         let new_uids = match tokio::time::timeout(IMAP_SEARCH_TIMEOUT, session.uid_search(&query)).await {
             Ok(Ok(uids)) => {
+                let raw_count = uids.len();
                 let mut result: Vec<u32> = uids.into_iter().filter(|&u| u > req.last_uid).collect();
                 result.sort();
+                log::info!(
+                    "delta_check: UID SEARCH {} {folder}: range returned {} uids, {} new after filter",
+                    query,
+                    raw_count,
+                    result.len(),
+                    folder = req.folder
+                );
+                // QQ-style servers return empty for range queries; fall back to ALL.
+                if result.is_empty() && async_imap_unreliable(host) && req.last_uid > 0 {
+                    log::info!(
+                        "delta_check: range returned 0 for {folder} on {host} (async-imap quirk) — falling back to ALL",
+                        folder = req.folder,
+                        host = host
+                    );
+                    if let Ok(Ok(all_uids)) = tokio::time::timeout(IMAP_SEARCH_TIMEOUT, session.uid_search("ALL")).await {
+                        let before = result.len();
+                        result = all_uids.into_iter().filter(|&u| u > req.last_uid).collect();
+                        result.sort();
+                        log::info!(
+                            "delta_check: ALL fallback for {folder}: {} new after filter (was {} from range)",
+                            result.len(),
+                            before,
+                            folder = req.folder
+                        );
+                    }
+                }
                 result
             }
             Ok(Err(e)) => {
-                log::warn!("delta_check: UID SEARCH {} failed: {e}", req.folder);
-                vec![]
+                log::warn!(
+                    "delta_check: UID SEARCH {} (range) failed for {}: {e} — falling back to ALL",
+                    query, req.folder
+                );
+                match tokio::time::timeout(IMAP_SEARCH_TIMEOUT, session.uid_search("ALL")).await {
+                    Ok(Ok(uids)) => {
+                        let mut result: Vec<u32> =
+                            uids.into_iter().filter(|&u| u > req.last_uid).collect();
+                        result.sort();
+                        result
+                    }
+                    Ok(Err(e2)) => {
+                        log::warn!("delta_check: UID SEARCH ALL failed for {}: {e2}", req.folder);
+                        vec![]
+                    }
+                    Err(_) => {
+                        log::warn!(
+                            "delta_check: UID SEARCH ALL timed out after {}s",
+                            IMAP_SEARCH_TIMEOUT.as_secs()
+                        );
+                        vec![]
+                    }
+                }
             }
             Err(_) => {
-                log::warn!("delta_check: UID SEARCH {} timed out after {}s", req.folder, IMAP_SEARCH_TIMEOUT.as_secs());
+                log::warn!(
+                    "delta_check: UID SEARCH {} timed out after {}s",
+                    req.folder,
+                    IMAP_SEARCH_TIMEOUT.as_secs()
+                );
                 vec![]
             }
         };
@@ -1016,7 +1080,7 @@ pub async fn fetch_messages_batched(
         return Err("No UIDs provided".to_string());
     }
 
-    if prefer_raw_imap_fetch(&config.host) {
+    if async_imap_unreliable(&config.host) {
         return raw_fetch_messages_batched(config, folder, uid_batches, headers_only).await;
     }
 
@@ -1040,7 +1104,7 @@ pub async fn run_delta_sync(
             search_results = search_folders_batch(&mut session, &request.new_folder_searches).await?;
         }
         if !request.delta_checks.is_empty() {
-            delta_results = delta_check_folders(&mut session, &request.delta_checks).await?;
+            delta_results = delta_check_folders(&mut session, &config.host, &request.delta_checks).await?;
         }
         // UIDVALIDITY changed — re-search affected folders in the same session
         for dr in &delta_results {
@@ -1086,17 +1150,58 @@ pub async fn run_delta_sync(
     }
 
     let mut fetch_results = Vec::new();
-    for fetch in &fetches {
-        if fetch.uids.is_empty() {
-            continue;
-        }
-        let headers_only = request.headers_only && !fetch.full_body;
-        let batches: Vec<Vec<u32>> = fetch
-            .uids
-            .chunks(50)
-            .map(|chunk| chunk.to_vec())
-            .collect();
-        match fetch_messages_batched(config, &fetch.folder, &batches, headers_only).await {
+    // Run per-folder fetches concurrently (max 5 in flight). Each fetch opens
+    // its own IMAP connection (see `fetch_messages_batched`), so parallelizing
+    // here turns N sequential TCP+TLS+LOGIN round-trips into ~ceil(N/5) rounds.
+    // Cap is 5 to stay under QQ's per-account connection limit (~5-10).
+    use futures::stream::{self, StreamExt as _};
+
+    // Pre-compute owned per-folder fetch inputs so the stream closure never
+    // borrows from `fetches` (which would make its FnOnce lifetime-specific
+    // and break tauri::command's higher-ranked bound on the parent async fn).
+    let fetch_inputs: Vec<(usize, String, Vec<Vec<u32>>, bool)> = fetches
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| !f.uids.is_empty())
+        .map(|(idx, f)| {
+            let batches: Vec<Vec<u32>> = f.uids.chunks(50).map(|c| c.to_vec()).collect();
+            let headers_only = request.headers_only && !f.full_body;
+            (idx, f.folder.clone(), batches, headers_only)
+        })
+        .collect();
+
+    let fetch_started = std::time::Instant::now();
+    let total_fetches = fetch_inputs.len();
+    log::info!(
+        "run_delta_sync: {} folder fetches (concurrency=5), host={}",
+        total_fetches,
+        config.host
+    );
+
+    let mut results_with_idx: Vec<(usize, Result<ImapFetchResult, String>)> =
+        stream::iter(fetch_inputs.into_iter().map(|(idx, folder, uid_batches, headers_only)| {
+            let config = config.clone();
+            async move {
+                let r = fetch_messages_batched(&config, &folder, &uid_batches, headers_only).await;
+                (idx, r)
+            }
+        }))
+        .buffer_unordered(5)
+        .collect()
+        .await;
+
+    let fetch_elapsed = fetch_started.elapsed();
+    log::info!(
+        "run_delta_sync: all fetches done in {:.2}s ({} folders)",
+        fetch_elapsed.as_secs_f64(),
+        total_fetches
+    );
+
+    // Re-order by original index so downstream logic sees deterministic order.
+    results_with_idx.sort_by_key(|(idx, _)| *idx);
+    for (idx, r) in results_with_idx {
+        let fetch = &fetches[idx];
+        match r {
             Ok(r) => fetch_results.push(ImapFolderFetchBatchResult {
                 folder: fetch.folder.clone(),
                 messages: r.messages,

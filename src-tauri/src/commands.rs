@@ -46,7 +46,7 @@ pub async fn imap_fetch_messages(
         .join(",");
 
     // Yandex Team servers always return empty via async-imap — skip the wasted connection.
-    if imap_client::prefer_raw_imap_fetch(&config.host) {
+    if imap_client::async_imap_unreliable(&config.host) {
         log::info!(
             "Using raw TCP fetch directly for {} (async-imap incompatible)",
             config.host
@@ -318,7 +318,7 @@ pub async fn imap_sync_folder_streaming(
         }
     };
 
-    if imap_client::prefer_raw_imap_fetch(&config.host) {
+    if imap_client::async_imap_unreliable(&config.host) {
         return imap_client::raw_sync_folder_with_batches(
             &config,
             &folder,
@@ -377,7 +377,7 @@ pub async fn imap_delta_check(
     folders: Vec<DeltaCheckRequest>,
 ) -> Result<Vec<DeltaCheckResult>, String> {
     let mut session = imap_client::connect(&config).await?;
-    let results = imap_client::delta_check_folders(&mut session, &folders).await?;
+    let results = imap_client::delta_check_folders(&mut session, &config.host, &folders).await?;
     let _ = session.logout().await;
     Ok(results)
 }

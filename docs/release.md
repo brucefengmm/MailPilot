@@ -9,7 +9,6 @@ How MailPilot publishes desktop builds to GitHub Releases and delivers in-app up
 | **Release Please** | Yes | Every push to `main`; creates Release PRs |
 | **Build & Release** | Yes | Release Please (after merge), manual dispatch, or new GitHub Release |
 | **Build & Package** | No | Release Please only (Flatpak + SRPM) |
-| **Update Homebrew Tap** | Yes | Release Please only (updates `homebrew-mailpilot`) |
 
 ```text
 feat/fix commits → push main
@@ -22,7 +21,6 @@ GitHub Release created (tag: v0.0.x)
        ↓
 Build & Release  →  Win / Linux / macOS + latest.json
 Build & Package  →  Flatpak + SRPM
-Update Homebrew  →  homebrew-mailpilot cask
 ```
 
 Direct links:
@@ -145,7 +143,6 @@ Never commit the private key.
 | --- | --- | --- |
 | `TAURI_SIGNING_PRIVATE_KEY` | **Yes** | Sign update artifacts; generate `latest.json` |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | If key has password | Unlock signing key in CI |
-| `HOMEBREW_TAP_TOKEN` | For Homebrew job | Push to `brucefengmm/homebrew-mailpilot` |
 | `RELEASE_PLEASE_TOKEN` | Optional | PAT if org blocks Actions from opening PRs |
 | `APPLE_CERTIFICATE` + related | Optional | macOS code signing and notarization |
 
@@ -184,11 +181,9 @@ After merging the Release PR, GitHub Actions builds and publishes the release. S
 
 ## Homebrew
 
-After each release, **Update Homebrew Tap** downloads the universal DMG, computes SHA256, and pushes an updated cask to [homebrew-mailpilot](https://github.com/brucefengmm/homebrew-mailpilot).
+Homebrew Tap auto-update has been removed. macOS users should install via the universal DMG attached to each GitHub Release.
 
-Release tags use the format **`v{version}`** (e.g. `v0.0.2`), matching Build & Release and the cask download URL.
-
-Requires `HOMEBREW_TAP_TOKEN` with write access to the tap repo.
+Release tags use the format **`v{version}`** (e.g. `v0.0.2`), matching Build & Release and the DMG download URL.
 
 ### CI: "A public key has been found, but no private key"
 
@@ -224,6 +219,5 @@ GitHub Actions on **`windows-latest`** can inject `\r` into multiline secrets. P
 | Build fails: public key but no private key | `TAURI_SIGNING_PRIVATE_KEY` secret missing, empty, or truncated |
 | No `latest.json` on Release | Missing signing secret or `createUpdaterArtifacts: false` |
 | Update check fails in app | Pubkey/private key mismatch, or no newer Release |
-| Homebrew job fails | Missing `HOMEBREW_TAP_TOKEN`, or DMG not uploaded yet (wait for Build & Release) |
 | Release Please does not open PR | No releasable commits since last tag, or Actions PR permission blocked |
 | CI test job fails | Fix tests locally with `npm run test` before pushing |
