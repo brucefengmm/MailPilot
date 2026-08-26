@@ -173,6 +173,10 @@ Requires `HOMEBREW_TAP_TOKEN` with write access to the tap repo.
 
 `createUpdaterArtifacts` + `pubkey` require signing in CI. Set **`TAURI_SIGNING_PRIVATE_KEY`** to the full `.key` file contents (all lines). If the key has a password, set **`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`** too. The workflow verifies the secret before building.
 
+### CI: Linux/macOS verify OK, Windows verify fails
+
+Your secret is probably fine. GitHub Actions on **`windows-latest`** can inject `\r` into multiline secrets. The workflow strips CR before signing; re-run **Build & Release** after pulling the latest `release.yml`. If it still fails, delete and re-add **`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`** when the key has **no** password (a blank password secret causes "wrong password" errors).
+
 ## Quick reference
 
 | Goal | Action |

@@ -76,23 +76,62 @@ jobs:
 
       - run: npm ci
 
-      - name: Verify Tauri signing secret
+      # windows-latest can inject CR (\r) into multiline repository secrets — strip before use
+      - name: Normalize signing secrets
+        shell: bash
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RAW_TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          if [ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]; then
-            echo "::error::TAURI_SIGNING_PRIVATE_KEY is empty. Paste the full mailpilot.key contents (including untrusted comment lines) into GitHub Secrets."
+          if [ -z "${RAW_TAURI_SIGNING_PRIVATE_KEY}" ]; then
+            exit 0
+          fi
+          KEY=$(printf '%s' "$RAW_TAURI_SIGNING_PRIVATE_KEY" | tr -d '\r')
+          {
+            echo 'TAURI_SIGNING_PRIVATE_KEY<<MAILPILOT_KEY_EOF'
+            printf '%s' "$KEY"
+            echo
+            echo 'MAILPILOT_KEY_EOF'
+          } >> "$GITHUB_ENV"
+          if [ -n "${RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
+            PW=$(printf '%s' "$RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD" | tr -d '\r')
+            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$PW" >> "$GITHUB_ENV"
+          fi
+
+      - name: Verify Tauri signing secret
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is empty. Add a **Repository secret** (not Environment secret) with the full mailpilot.key contents."
             exit 1
           fi
-          echo "Tauri signing secret is configured."
+          if ! printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | grep -q 'untrusted comment:'; then
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is missing the minisign header line (untrusted comment:). Paste the entire .key file, not just the base64 line."
+          fi
+          echo "test" > "${RUNNER_TEMP}/tauri-sign-check.txt"
+          if ! npx tauri signer sign "${RUNNER_TEMP}/tauri-sign-check.txt" -k "$TAURI_SIGNING_PRIVATE_KEY" ${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:+-p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"} > /tmp/sign.out 2> /tmp/sign.err; then
+            echo "::error::Tauri signing key verification failed. Common fixes:"
+            echo "::error::  1) Use Repository secrets (Settings → Secrets → Actions), not Environment secrets"
+            echo "::error::  2) Paste the FULL mailpilot.key (all lines including untrusted comment headers)"
+            echo "::error::  3) Passwordless key → DELETE TAURI_SIGNING_PRIVATE_KEY_PASSWORD (do not set a blank/space secret)"
+            echo "::error::  4) Key with password → set TAURI_SIGNING_PRIVATE_KEY_PASSWORD to the exact password"
+            echo "::error::  5) Regenerate key pair if pubkey in tauri.conf.json does not match this private key"
+            sed 's/^/::error::/' /tmp/sign.err || true
+            exit 1
+          fi
+          echo "Tauri signing secret verified."
 
       - name: Build and upload to existing release
         if: inputs.release_id
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           releaseId: ${{ inputs.release_id }}
           updaterJsonKeepUniversal: true
@@ -103,8 +142,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
           releaseName: "MailPilot v__VERSION__"
@@ -135,15 +174,54 @@ jobs:
 
       - run: npm ci
 
-      - name: Verify Tauri signing secret
+      # windows-latest can inject CR (\r) into multiline repository secrets — strip before use
+      - name: Normalize signing secrets
+        shell: bash
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RAW_TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          if [ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]; then
-            echo "::error::TAURI_SIGNING_PRIVATE_KEY is empty. Paste the full mailpilot.key contents (including untrusted comment lines) into GitHub Secrets."
+          if [ -z "${RAW_TAURI_SIGNING_PRIVATE_KEY}" ]; then
+            exit 0
+          fi
+          KEY=$(printf '%s' "$RAW_TAURI_SIGNING_PRIVATE_KEY" | tr -d '\r')
+          {
+            echo 'TAURI_SIGNING_PRIVATE_KEY<<MAILPILOT_KEY_EOF'
+            printf '%s' "$KEY"
+            echo
+            echo 'MAILPILOT_KEY_EOF'
+          } >> "$GITHUB_ENV"
+          if [ -n "${RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
+            PW=$(printf '%s' "$RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD" | tr -d '\r')
+            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$PW" >> "$GITHUB_ENV"
+          fi
+
+      - name: Verify Tauri signing secret
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is empty. Add a **Repository secret** (not Environment secret) with the full mailpilot.key contents."
             exit 1
           fi
-          echo "Tauri signing secret is configured."
+          if ! printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | grep -q 'untrusted comment:'; then
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is missing the minisign header line (untrusted comment:). Paste the entire .key file, not just the base64 line."
+          fi
+          echo "test" > "${RUNNER_TEMP}/tauri-sign-check.txt"
+          if ! npx tauri signer sign "${RUNNER_TEMP}/tauri-sign-check.txt" -k "$TAURI_SIGNING_PRIVATE_KEY" ${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:+-p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"} > /tmp/sign.out 2> /tmp/sign.err; then
+            echo "::error::Tauri signing key verification failed. Common fixes:"
+            echo "::error::  1) Use Repository secrets (Settings → Secrets → Actions), not Environment secrets"
+            echo "::error::  2) Paste the FULL mailpilot.key (all lines including untrusted comment headers)"
+            echo "::error::  3) Passwordless key → DELETE TAURI_SIGNING_PRIVATE_KEY_PASSWORD (do not set a blank/space secret)"
+            echo "::error::  4) Key with password → set TAURI_SIGNING_PRIVATE_KEY_PASSWORD to the exact password"
+            echo "::error::  5) Regenerate key pair if pubkey in tauri.conf.json does not match this private key"
+            sed 's/^/::error::/' /tmp/sign.err || true
+            exit 1
+          fi
+          echo "Tauri signing secret verified."
 
       - name: Check if Apple signing is configured
         id: signing-check
@@ -185,8 +263,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           releaseId: ${{ inputs.release_id }}
           updaterJsonKeepUniversal: true
@@ -201,8 +279,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
           releaseName: "MailPilot v__VERSION__"
@@ -217,8 +295,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           releaseId: ${{ inputs.release_id }}
           updaterJsonKeepUniversal: true
@@ -229,8 +307,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
           releaseName: "MailPilot v__VERSION__"
