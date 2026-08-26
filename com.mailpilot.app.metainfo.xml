@@ -13,7 +13,7 @@
   <url type="bugtracker">https://github.com/brucefengmm/MailPilot/issues</url>
   <launchable type="desktop-id">com.mailpilot.app.desktop</launchable>
   <releases>
-    <release version="0.1.1" date="2026-08-25" /> <!-- x-release-please-version -->
+    <release version="0.1.2" date="2026-08-25" /> <!-- x-release-please-version -->
   </releases>
   <developer id="app.mailpilot">
     <name>MailPilot Team</name>
