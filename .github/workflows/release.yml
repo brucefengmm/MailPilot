@@ -87,6 +87,22 @@ jobs:
             exit 0
           fi
           KEY=$(printf '%s' "$RAW_TAURI_SIGNING_PRIVATE_KEY" | tr -d '\r')
+          # Some editors store the whole minisign file as a single base64 line — decode when needed
+          if ! printf '%s' "$KEY" | grep -q 'untrusted comment:'; then
+            DECODED=$(printf '%s' "$KEY" | tr -d '\n' | base64 -d 2>/dev/null || true)
+            if printf '%s' "$DECODED" | grep -q 'untrusted comment:'; then
+              KEY="$DECODED"
+              echo "Decoded base64-wrapped TAURI_SIGNING_PRIVATE_KEY."
+            fi
+          fi
+          if ! printf '%s' "$KEY" | grep -q 'untrusted comment:'; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY must include minisign header lines (untrusted comment: ...)."
+            echo "::error::Paste the FULL mailpilot.key — open in Notepad, Ctrl+A, Ctrl+C. Do not paste only one base64 line from the middle."
+            exit 1
+          fi
+          if printf '%s' "$KEY" | grep -q 'encrypted secret key'; then
+            echo "Signing key is password-protected (encrypted secret key)."
+          fi
           {
             echo 'TAURI_SIGNING_PRIVATE_KEY<<MAILPILOT_KEY_EOF'
             printf '%s' "$KEY"
@@ -94,8 +110,12 @@ jobs:
             echo 'MAILPILOT_KEY_EOF'
           } >> "$GITHUB_ENV"
           if [ -n "${RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
-            PW=$(printf '%s' "$RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD" | tr -d '\r')
-            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$PW" >> "$GITHUB_ENV"
+            PW=$(printf '%s' "$RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            if [ -n "$PW" ]; then
+              echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$PW" >> "$GITHUB_ENV"
+            else
+              echo "::warning::TAURI_SIGNING_PRIVATE_KEY_PASSWORD is blank — ignoring. Delete this secret if your key has no password."
+            fi
           fi
 
       - name: Verify Tauri signing secret
@@ -110,10 +130,20 @@ jobs:
             exit 1
           fi
           if ! printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | grep -q 'untrusted comment:'; then
-            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is missing the minisign header line (untrusted comment:). Paste the entire .key file, not just the base64 line."
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is still invalid after normalization."
+            exit 1
+          fi
+          if printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | grep -q 'encrypted secret key' && [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
+            echo "::error::This signing key has a password. Set TAURI_SIGNING_PRIVATE_KEY_PASSWORD to the password you used in 'tauri signer generate'."
+            exit 1
           fi
           echo "test" > "${RUNNER_TEMP}/tauri-sign-check.txt"
           if ! npx tauri signer sign "${RUNNER_TEMP}/tauri-sign-check.txt" -k "$TAURI_SIGNING_PRIVATE_KEY" ${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:+-p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"} > /tmp/sign.out 2> /tmp/sign.err; then
+            if grep -qi 'wrong password' /tmp/sign.err; then
+              echo "::error::Wrong password for signing key."
+              echo "::error::If you generated mailpilot.key WITHOUT a password → go to Settings → Secrets → Actions and DELETE TAURI_SIGNING_PRIVATE_KEY_PASSWORD."
+              echo "::error::If the key HAS a password → set TAURI_SIGNING_PRIVATE_KEY_PASSWORD to that exact password."
+            fi
             echo "::error::Tauri signing key verification failed. Common fixes:"
             echo "::error::  1) Use Repository secrets (Settings → Secrets → Actions), not Environment secrets"
             echo "::error::  2) Paste the FULL mailpilot.key (all lines including untrusted comment headers)"
@@ -185,6 +215,22 @@ jobs:
             exit 0
           fi
           KEY=$(printf '%s' "$RAW_TAURI_SIGNING_PRIVATE_KEY" | tr -d '\r')
+          # Some editors store the whole minisign file as a single base64 line — decode when needed
+          if ! printf '%s' "$KEY" | grep -q 'untrusted comment:'; then
+            DECODED=$(printf '%s' "$KEY" | tr -d '\n' | base64 -d 2>/dev/null || true)
+            if printf '%s' "$DECODED" | grep -q 'untrusted comment:'; then
+              KEY="$DECODED"
+              echo "Decoded base64-wrapped TAURI_SIGNING_PRIVATE_KEY."
+            fi
+          fi
+          if ! printf '%s' "$KEY" | grep -q 'untrusted comment:'; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY must include minisign header lines (untrusted comment: ...)."
+            echo "::error::Paste the FULL mailpilot.key — open in Notepad, Ctrl+A, Ctrl+C. Do not paste only one base64 line from the middle."
+            exit 1
+          fi
+          if printf '%s' "$KEY" | grep -q 'encrypted secret key'; then
+            echo "Signing key is password-protected (encrypted secret key)."
+          fi
           {
             echo 'TAURI_SIGNING_PRIVATE_KEY<<MAILPILOT_KEY_EOF'
             printf '%s' "$KEY"
@@ -192,8 +238,12 @@ jobs:
             echo 'MAILPILOT_KEY_EOF'
           } >> "$GITHUB_ENV"
           if [ -n "${RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
-            PW=$(printf '%s' "$RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD" | tr -d '\r')
-            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$PW" >> "$GITHUB_ENV"
+            PW=$(printf '%s' "$RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            if [ -n "$PW" ]; then
+              echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$PW" >> "$GITHUB_ENV"
+            else
+              echo "::warning::TAURI_SIGNING_PRIVATE_KEY_PASSWORD is blank — ignoring. Delete this secret if your key has no password."
+            fi
           fi
 
       - name: Verify Tauri signing secret
@@ -208,10 +258,20 @@ jobs:
             exit 1
           fi
           if ! printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | grep -q 'untrusted comment:'; then
-            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is missing the minisign header line (untrusted comment:). Paste the entire .key file, not just the base64 line."
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is still invalid after normalization."
+            exit 1
+          fi
+          if printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | grep -q 'encrypted secret key' && [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
+            echo "::error::This signing key has a password. Set TAURI_SIGNING_PRIVATE_KEY_PASSWORD to the password you used in 'tauri signer generate'."
+            exit 1
           fi
           echo "test" > "${RUNNER_TEMP}/tauri-sign-check.txt"
           if ! npx tauri signer sign "${RUNNER_TEMP}/tauri-sign-check.txt" -k "$TAURI_SIGNING_PRIVATE_KEY" ${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:+-p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"} > /tmp/sign.out 2> /tmp/sign.err; then
+            if grep -qi 'wrong password' /tmp/sign.err; then
+              echo "::error::Wrong password for signing key."
+              echo "::error::If you generated mailpilot.key WITHOUT a password → go to Settings → Secrets → Actions and DELETE TAURI_SIGNING_PRIVATE_KEY_PASSWORD."
+              echo "::error::If the key HAS a password → set TAURI_SIGNING_PRIVATE_KEY_PASSWORD to that exact password."
+            fi
             echo "::error::Tauri signing key verification failed. Common fixes:"
             echo "::error::  1) Use Repository secrets (Settings → Secrets → Actions), not Environment secrets"
             echo "::error::  2) Paste the FULL mailpilot.key (all lines including untrusted comment headers)"

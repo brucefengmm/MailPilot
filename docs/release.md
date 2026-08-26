@@ -112,9 +112,20 @@ Implementation: `src/services/updateManager.ts`, `src/components/ui/UpdateToast.
 npm run tauri -- signer generate -w "$HOME/.tauri/mailpilot.key"
 ```
 
-- **Private key** → GitHub Secret `TAURI_SIGNING_PRIVATE_KEY` (full file contents)
-- **Public key** (`.pub` file) → `plugins.updater.pubkey` in `tauri.conf.json`
-- If the key has a password → Secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+When prompted for a password, press **Enter** for none (simplest for CI).
+
+**GitHub Secret `TAURI_SIGNING_PRIVATE_KEY`** — paste the **entire** private key file:
+
+```powershell
+# PowerShell — copies full key to clipboard
+Get-Content "$env:USERPROFILE\.tauri\mailpilot.key" -Raw | Set-Clipboard
+```
+
+The secret must contain lines starting with `untrusted comment:` (visible after paste). If your `.key` file is one long base64 line, CI will auto-decode it; otherwise open the file in Notepad → **Ctrl+A** → **Ctrl+C**.
+
+- **Public key** (`.pub` file) → `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`
+- **Password** → only if you set one at generate time → Secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+- **No password** → do **not** create `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` at all
 
 Never commit the private key.
 
@@ -173,9 +184,18 @@ Requires `HOMEBREW_TAP_TOKEN` with write access to the tap repo.
 
 `createUpdaterArtifacts` + `pubkey` require signing in CI. Set **`TAURI_SIGNING_PRIVATE_KEY`** to the full `.key` file contents (all lines). If the key has a password, set **`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`** too. The workflow verifies the secret before building.
 
+### CI: "Wrong password for that key"
+
+Your private key is loaded, but **`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` does not match**.
+
+| How you generated `mailpilot.key` | What to do in GitHub Secrets |
+| --- | --- |
+| **No password** (pressed Enter) | **Delete** `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` entirely — do not leave a blank or space secret |
+| **With password** | Set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` to the **exact** password you used when running `tauri signer generate` |
+
 ### CI: Linux/macOS verify OK, Windows verify fails
 
-Your secret is probably fine. GitHub Actions on **`windows-latest`** can inject `\r` into multiline secrets. The workflow strips CR before signing; re-run **Build & Release** after pulling the latest `release.yml`. If it still fails, delete and re-add **`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`** when the key has **no** password (a blank password secret causes "wrong password" errors).
+GitHub Actions on **`windows-latest`** can inject `\r` into multiline secrets. Pull the latest `release.yml` (includes CR stripping) and re-run **Build & Release**.
 
 ## Quick reference
 
