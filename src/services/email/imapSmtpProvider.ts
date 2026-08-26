@@ -19,6 +19,7 @@ import {
   type SmtpConfig,
 } from "../imap/tauriCommands";
 import { getAccount, type DbAccount } from "../db/accounts";
+import { getMessagesForThread } from "../db/messages";
 import { findSpecialFolder } from "../imap/messageHelper";
 import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import { upsertMessage } from "../db/messages";
@@ -271,11 +272,12 @@ export class ImapSmtpProvider implements EmailProvider {
   // ---- Actions ----
 
   async archive(
-    _threadId: string,
-    _messageIds: string[],
+    threadId: string,
+    messageIds: string[],
   ): Promise<void> {
     const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
+    const ids = await this.resolveMessageIds(threadId, messageIds);
+    const grouped = this.groupByFolder(ids);
     const archiveFolder =
       (await findSpecialFolder(this.accountId, "\\Archive")) ?? "Archive";
 
@@ -286,11 +288,12 @@ export class ImapSmtpProvider implements EmailProvider {
   }
 
   async trash(
-    _threadId: string,
-    _messageIds: string[],
+    threadId: string,
+    messageIds: string[],
   ): Promise<void> {
     const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
+    const ids = await this.resolveMessageIds(threadId, messageIds);
+    const grouped = this.groupByFolder(ids);
     const trashFolder =
       (await findSpecialFolder(this.accountId, "\\Trash")) ?? "Trash";
 
@@ -301,11 +304,12 @@ export class ImapSmtpProvider implements EmailProvider {
   }
 
   async permanentDelete(
-    _threadId: string,
-    _messageIds: string[],
+    threadId: string,
+    messageIds: string[],
   ): Promise<void> {
     const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
+    const ids = await this.resolveMessageIds(threadId, messageIds);
+    const grouped = this.groupByFolder(ids);
 
     for (const [folder, uids] of grouped) {
       await imapDeleteMessages(config, folder, uids);
@@ -313,12 +317,13 @@ export class ImapSmtpProvider implements EmailProvider {
   }
 
   async markRead(
-    _threadId: string,
-    _messageIds: string[],
+    threadId: string,
+    messageIds: string[],
     read: boolean,
   ): Promise<void> {
     const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
+    const ids = await this.resolveMessageIds(threadId, messageIds);
+    const grouped = this.groupByFolder(ids);
 
     for (const [folder, uids] of grouped) {
       await imapSetFlags(config, folder, uids, ["Seen"], read);
@@ -326,12 +331,13 @@ export class ImapSmtpProvider implements EmailProvider {
   }
 
   async star(
-    _threadId: string,
-    _messageIds: string[],
+    threadId: string,
+    messageIds: string[],
     starred: boolean,
   ): Promise<void> {
     const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
+    const ids = await this.resolveMessageIds(threadId, messageIds);
+    const grouped = this.groupByFolder(ids);
 
     for (const [folder, uids] of grouped) {
       await imapSetFlags(config, folder, uids, ["Flagged"], starred);
@@ -339,12 +345,13 @@ export class ImapSmtpProvider implements EmailProvider {
   }
 
   async spam(
-    _threadId: string,
-    _messageIds: string[],
+    threadId: string,
+    messageIds: string[],
     isSpam: boolean,
   ): Promise<void> {
     const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
+    const ids = await this.resolveMessageIds(threadId, messageIds);
+    const grouped = this.groupByFolder(ids);
     const junkFolder =
       (await findSpecialFolder(this.accountId, "\\Junk")) ?? "Junk";
     const destination = isSpam ? junkFolder : "INBOX";
@@ -356,12 +363,13 @@ export class ImapSmtpProvider implements EmailProvider {
   }
 
   async moveToFolder(
-    _threadId: string,
-    _messageIds: string[],
+    threadId: string,
+    messageIds: string[],
     folderPath: string,
   ): Promise<void> {
     const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
+    const ids = await this.resolveMessageIds(threadId, messageIds);
+    const grouped = this.groupByFolder(ids);
 
     for (const [folder, uids] of grouped) {
       if (folder === folderPath) continue;
@@ -604,6 +612,16 @@ export class ImapSmtpProvider implements EmailProvider {
   }
 
   // ---- Helpers ----
+
+  /** When callers pass no message IDs (Gmail-style thread actions), load from DB. */
+  private async resolveMessageIds(
+    threadId: string,
+    messageIds: string[],
+  ): Promise<string[]> {
+    if (messageIds.length > 0) return messageIds;
+    const messages = await getMessagesForThread(this.accountId, threadId);
+    return messages.map((m) => m.id);
+  }
 
   /**
    * Parse IMAP message IDs and group UIDs by folder.

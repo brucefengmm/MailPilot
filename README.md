@@ -55,22 +55,28 @@ MailPilot's four pillar AI capabilities:
 | **Thread summaries** | Long threads get a short summary: topic, decisions, open items |
 | **Natural language search** | Search like *"find the contract my boss sent last quarter"* |
 
-Three cloud providers plus local LLM support:
+Eight AI backends — cloud APIs and local Ollama:
 
-| Provider | Models |
-| --- | --- |
-| **Anthropic Claude** | Haiku 4.5, Sonnet 4, Opus 4 |
-| **OpenAI** | GPT-4o Mini, GPT-4o, GPT-4.1 Nano, GPT-4.1 Mini, GPT-4.1 |
-| **Google Gemini** | 2.5 Flash, 2.5 Pro |
-| **Local (Ollama)** | Bring your own model — data stays on your machine |
+| Provider | Models | Notes |
+| --- | --- | --- |
+| **Anthropic Claude** | Haiku 4.5, Sonnet 4, Opus 4 | [Anthropic API](https://console.anthropic.com/) |
+| **OpenAI** | GPT-4o Mini, GPT-4o, GPT-4.1 Nano, GPT-4.1 Mini, GPT-4.1 | [OpenAI API](https://platform.openai.com/) |
+| **Google Gemini** | 2.5 Flash, 2.5 Pro | [Google AI Studio](https://aistudio.google.com/) |
+| **DeepSeek** | V4 Flash, V4 Pro | [DeepSeek API](https://platform.deepseek.com/) |
+| **Kimi (Moonshot)** | K2.6, K3 | [Moonshot API](https://platform.moonshot.cn/) |
+| **GLM (Zhipu AI)** | GLM-5.3, GLM-5.2, GLM-5.1 | [Zhipu API](https://open.bigmodel.cn/) |
+| **GitHub Copilot** | GPT-4o Mini, GPT-4.1 Nano/Mini, GPT-4o, GPT-4.1 | GitHub Personal Access Token → [models.github.ai](https://github.com/marketplace/models) |
+| **Local (Ollama)** | Any installed model (default: Llama 3.2) | Data stays on your machine |
 
-Writing-style learning, Ask My Inbox, smart replies, and AI compose. All results cached locally.
+Per-feature provider selection, automatic or manual AI triggers, and output language (English / Chinese / Russian). Writing-style learning, Ask My Inbox, smart replies, and AI compose. All results cached locally.
 
 > AI never sends on your behalf — every draft requires you to press Send.
 
 ### Email
 
-- Multi-account support: Gmail (OAuth/API) and IMAP/SMTP (Outlook, Yahoo, iCloud, Fastmail, and more)
+- Multi-account support: Gmail (OAuth/API) and IMAP/SMTP (Outlook, Yahoo, iCloud, Fastmail, Yandex, and more)
+- IMAP delta sync with batched folder search, header-only background fetch, and on-demand body loading (cached locally after first read)
+- Configurable auto-refresh interval (default 120s) plus manual sync (`F5` or header refresh button)
 - Threaded conversations with collapsible messages
 - Full-text search with Gmail-style operators (`from:`, `to:`, `subject:`, `has:attachment`, `label:`, etc.)
 - Command palette (`/` or `Ctrl+K`) for quick actions
@@ -118,6 +124,7 @@ Writing-style learning, Ask My Inbox, smart replies, and AI compose. All results
 
 ### System Integration
 
+- In-app auto-update — checks GitHub Releases every 4 hours; install from the toast or Settings → Developer
 - `mailto:` deep links, global compose shortcut
 - Autostart (hidden in tray), single instance
 - [Customizable keyboard shortcuts](docs/keyboard-shortcuts.md) — `j/k` navigate, `r` reply, `s` star, `e` archive
@@ -130,15 +137,26 @@ Download the latest release for your platform:
 
 **[Download MailPilot](https://github.com/brucefengmm/MailPilot/releases/latest)** — Windows `.msi` / `.exe` &bull; macOS `.dmg` &bull; Linux `.deb` / `.AppImage`
 
-No build tools required — download, install, and run.
+No build tools required — download, install, and run. Installed builds check [GitHub Releases](https://github.com/brucefengmm/MailPilot/releases) for signed updates automatically.
 
 ### Account setup
 
 **Gmail:** Create OAuth credentials in [Google Cloud Console](https://console.cloud.google.com/) (enable Gmail API), then enter your Client ID in MailPilot Settings. No client secret needed (PKCE).
 
-**IMAP/SMTP:** Click "Add IMAP Account" in the account switcher. MailPilot auto-discovers settings for Outlook, Yahoo, iCloud, Fastmail, and more.
+**IMAP/SMTP:** Click "Add IMAP Account" in the account switcher. MailPilot auto-discovers settings for Outlook, Yahoo, iCloud, Fastmail, and more. Complete the first manual sync to enable background IMAP auto-sync.
 
-**AI (optional):** Add an API key for [Anthropic](https://console.anthropic.com/), [OpenAI](https://platform.openai.com/), or [Google Gemini](https://aistudio.google.com/) in Settings. Or point to a local [Ollama](https://ollama.com/) instance.
+**AI (optional):** In Settings → AI, pick a provider and add an API key. Supported backends:
+
+| Provider | Get an API key |
+| --- | --- |
+| Anthropic Claude | [console.anthropic.com](https://console.anthropic.com/) |
+| OpenAI | [platform.openai.com](https://platform.openai.com/) |
+| Google Gemini | [aistudio.google.com](https://aistudio.google.com/) |
+| DeepSeek | [platform.deepseek.com](https://platform.deepseek.com/) |
+| Kimi (Moonshot) | [platform.moonshot.cn](https://platform.moonshot.cn/) |
+| GLM (Zhipu AI) | [open.bigmodel.cn](https://open.bigmodel.cn/) |
+| GitHub Copilot | [GitHub PAT](https://github.com/settings/tokens) with models access |
+| Ollama (local) | [ollama.com](https://ollama.com/) — no key; set base URL in Settings |
 
 ### Building from source
 
@@ -165,7 +183,7 @@ See [Development Guide](docs/development.md) for all commands, testing, and buil
 | **Editor** | TipTap v3 |
 | **Email** | Gmail API, IMAP/SMTP (async-imap + lettre) |
 | **Database** | SQLite + FTS5 (37 tables) |
-| **AI** | Claude, GPT, Gemini, Ollama |
+| **AI** | Claude, GPT, Gemini, DeepSeek, Kimi, GLM, GitHub Copilot, Ollama |
 | **Testing** | Vitest + Testing Library |
 
 See [Architecture](docs/architecture.md) for detailed design, data flow, and project structure.

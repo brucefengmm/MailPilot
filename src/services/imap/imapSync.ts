@@ -1,11 +1,7 @@
-import type { ImapConfig, ImapMessage, DeltaCheckRequest, DeltaCheckResult } from "./tauriCommands";
+import type { ImapMessage } from "./tauriCommands";
 import {
   imapListFolders,
-  imapGetFolderStatus,
-  imapFetchMessages,
-  imapFetchNewUids,
-  imapSearchFolder,
-  imapDeltaCheck,
+  imapRunDeltaSync,
   imapSyncFolderStreaming,
 } from "./tauriCommands";
 import { buildImapConfig } from "./imapConfigBuilder";
@@ -296,8 +292,8 @@ async function storeThreadsAndMessages(
             date: parsed.date,
             isRead: parsed.isRead,
             isStarred: parsed.isStarred,
-            bodyHtml: null,
-            bodyText: null,
+            bodyHtml: parsed.bodyHtml,
+            bodyText: parsed.bodyText,
             rawSize: parsed.rawSize,
             internalDate: parsed.internalDate,
             listUnsubscribe: parsed.listUnsubscribe,
@@ -365,8 +361,8 @@ async function storePlaceholderMessages(
       bccAddresses: parsed.bccAddresses,
       replyTo: parsed.replyTo,
       date: parsed.date,
-      bodyHtml: null,
-      bodyText: null,
+      bodyHtml: parsed.bodyHtml,
+      bodyText: parsed.bodyText,
       rawSize: parsed.rawSize,
       internalDate: parsed.internalDate,
       listUnsubscribe: parsed.listUnsubscribe,
@@ -666,40 +662,6 @@ export async function repairImapThreadsFromDb(accountId: string): Promise<void> 
 }
 
 // ---------------------------------------------------------------------------
-// Fetch messages from a folder in batches
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch messages from a folder in batches of BATCH_SIZE.
- */
-async function fetchMessagesInBatches(
-  config: ImapConfig,
-  folder: string,
-  uids: number[],
-  onBatch?: (fetched: number, total: number) => void,
-): Promise<{ messages: ImapMessage[]; lastUid: number; uidvalidity: number }> {
-  const allMessages: ImapMessage[] = [];
-  let lastUid = 0;
-  let uidvalidity = 0;
-
-  for (let i = 0; i < uids.length; i += BATCH_SIZE) {
-    const batch = uids.slice(i, i + BATCH_SIZE);
-    const result = await imapFetchMessages(config, folder, batch);
-
-    allMessages.push(...result.messages);
-    uidvalidity = result.folder_status.uidvalidity;
-
-    for (const msg of result.messages) {
-      if (msg.uid > lastUid) lastUid = msg.uid;
-    }
-
-    onBatch?.(Math.min(i + BATCH_SIZE, uids.length), uids.length);
-  }
-
-  return { messages: allMessages, lastUid, uidvalidity };
-}
-
-// ---------------------------------------------------------------------------
 // Initial sync
 // ---------------------------------------------------------------------------
 
@@ -961,6 +923,7 @@ export async function imapInitialSync(
 /**
  * Perform delta sync for an IMAP account.
  * Fetches only new messages since the last sync using stored UID state.
+ * Uses batched IMAP connections (P1/P2) and header-only fetch for new UIDs (P3).
  */
 export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<SyncResult> {
   const account = await getAccount(accountId);
@@ -974,57 +937,60 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   const globalDaysBack = parseInt(syncPeriodStr ?? "365", 10) || 365;
   const syncConfig = await getAccountImapSyncConfig(account, globalDaysBack);
 
-  // Get all folders we've synced before
   const syncStates = await getAllFolderSyncStates(accountId);
-
-  // Also check for any new folders
   const allFolders = await imapListFolders(config);
   const syncableFolders = await getFilteredSyncFolders(accountId, allFolders);
   await syncFoldersToLabels(accountId, syncableFolders);
 
   const syncStateMap = new Map(syncStates.map((s) => [s.folder_path, s]));
+  const folderByRawPath = new Map(syncableFolders.map((f) => [f.raw_path, f]));
+
+  const newFolders = syncableFolders.filter((f) => !syncStateMap.has(f.raw_path));
+  const existingFolders = syncableFolders.filter((f) => syncStateMap.has(f.raw_path));
 
   const allParsed = new Map<string, ParsedMessage>();
   const allThreadable: ThreadableMessage[] = [];
   const allImapMsgs = new Map<string, ImapMessage>();
 
-  // Separate folders into new (no saved state) vs existing (have saved state)
-  const newFolders = syncableFolders.filter((f) => !syncStateMap.has(f.raw_path));
-  const existingFolders = syncableFolders.filter((f) => syncStateMap.has(f.raw_path));
+  let syncNetworkResult;
+  try {
+    syncNetworkResult = await imapRunDeltaSync(config, {
+      new_folder_searches: newFolders.map((f) => ({
+        folder: f.raw_path,
+        since_date: syncConfig.sinceDate ?? null,
+      })),
+      delta_checks: existingFolders.map((f) => {
+        const savedState = syncStateMap.get(f.raw_path)!;
+        return {
+          folder: f.raw_path,
+          last_uid: savedState.last_uid,
+          uidvalidity: savedState.uidvalidity ?? 0,
+        };
+      }),
+      fetches: [],
+      headers_only: true,
+      resync_since_date: computeSinceDate(daysBack),
+    });
+    console.log(
+      `[imapSync] Delta sync network: ${syncNetworkResult.search_results.length} searches, ` +
+        `${syncNetworkResult.delta_results.length} delta checks, ` +
+        `${syncNetworkResult.fetch_results.length} fetches`,
+    );
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err ?? "Unknown error");
+    throw new Error(`Delta sync failed: ${errMsg}`);
+  }
 
-  // Handle new folders: search for UIDs then fetch in chunks
-  let consecutiveFailures = 0;
   const deltaFolderErrors: string[] = [];
-  for (const folder of newFolders) {
-    // Circuit breaker: skip remaining new folders after too many failures
-    if (consecutiveFailures >= CIRCUIT_BREAKER_MAX_FAILURES) {
-      console.warn(
-        `[imapSync] Delta sync circuit breaker: ${consecutiveFailures} consecutive failures, skipping remaining new folders`,
-      );
-      break;
-    }
-    if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
-      await delay(CIRCUIT_BREAKER_DELAY_MS);
-    }
+  const foldersWithFetches = new Set(syncNetworkResult.fetch_results.map((r) => r.folder));
+
+  for (const fetch of syncNetworkResult.fetch_results) {
+    const folder = folderByRawPath.get(fetch.folder);
+    if (!folder) continue;
 
     const folderMapping = mapFolderToLabel(folder);
     try {
-      const searchResult = await imapSearchFolder(
-        config,
-        folder.raw_path,
-        syncConfig.sinceDate,
-      );
-      consecutiveFailures = 0;
-
-      if (searchResult.uids.length === 0) continue;
-
-      const { messages, lastUid } = await fetchMessagesInBatches(
-        config,
-        folder.raw_path,
-        searchResult.uids,
-      );
-
-      for (const msg of messages) {
+      for (const msg of fetch.messages) {
         const { parsed, threadable } = imapMessageToParsedMessage(
           msg,
           accountId,
@@ -1034,160 +1000,104 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
         allThreadable.push(threadable);
         allImapMsgs.set(parsed.id, msg);
       }
-
-      await upsertFolderSyncState({
-        account_id: accountId,
-        folder_path: folder.raw_path,
-        uidvalidity: searchResult.folder_status.uidvalidity,
-        last_uid: lastUid,
-        modseq: null,
-        last_sync_at: Math.floor(Date.now() / 1000),
-      });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err ?? "Unknown error");
-      console.error(`Delta sync failed for new folder ${folder.path}:`, err);
       deltaFolderErrors.push(`${folder.path}: ${errMsg}`);
-      if (isConnectionError(err)) {
-        consecutiveFailures++;
-      }
     }
   }
 
-  // Batch-check existing folders in a single IMAP connection.
-  // Falls back to per-folder checks if the batch command fails.
-  if (existingFolders.length > 0) {
-    const deltaRequests: DeltaCheckRequest[] = existingFolders.map((folder) => {
-      const savedState = syncStateMap.get(folder.raw_path)!;
-      return {
-        folder: folder.raw_path,
-        last_uid: savedState.last_uid,
-        uidvalidity: savedState.uidvalidity ?? 0,
-      };
+  // Folders that were searched but fetch failed
+  for (const search of syncNetworkResult.search_results) {
+    if (search.uids.length > 0 && !foldersWithFetches.has(search.folder)) {
+      const folder = folderByRawPath.get(search.folder);
+      deltaFolderErrors.push(`${folder?.path ?? search.folder}: fetch failed`);
+    }
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+
+  // New folders: sync state from search + fetch
+  for (const search of syncNetworkResult.search_results) {
+    const folder = folderByRawPath.get(search.folder);
+    if (!folder || syncStateMap.has(search.folder)) continue;
+    if (search.uids.length === 0) {
+      await upsertFolderSyncState({
+        account_id: accountId,
+        folder_path: search.folder,
+        uidvalidity: search.folder_status.uidvalidity,
+        last_uid: 0,
+        modseq: null,
+        last_sync_at: now,
+      });
+      continue;
+    }
+
+    const fetch = syncNetworkResult.fetch_results.find((r) => r.folder === search.folder);
+    let lastUid = 0;
+    if (fetch) {
+      for (const msg of fetch.messages) {
+        if (msg.uid > lastUid) lastUid = msg.uid;
+      }
+    }
+    for (const uid of search.uids) {
+      if (uid > lastUid) lastUid = uid;
+    }
+
+    await upsertFolderSyncState({
+      account_id: accountId,
+      folder_path: search.folder,
+      uidvalidity: search.folder_status.uidvalidity,
+      last_uid: lastUid,
+      modseq: null,
+      last_sync_at: now,
     });
+  }
 
-    let deltaResultMap: Map<string, DeltaCheckResult>;
-    try {
-      const deltaResults = await imapDeltaCheck(config, deltaRequests);
-      deltaResultMap = new Map(deltaResults.map((r) => [r.folder, r]));
-      console.log(`[imapSync] Batch delta check: ${deltaResults.length}/${existingFolders.length} folders checked`);
-    } catch (err) {
-      // Batch check failed — fall back to per-folder checks
-      console.warn(`[imapSync] Batch delta check failed, falling back to per-folder:`, err);
-      deltaResultMap = new Map();
-      for (const folder of existingFolders) {
-        const savedState = syncStateMap.get(folder.raw_path)!;
-        try {
-          const currentStatus = await imapGetFolderStatus(config, folder.raw_path);
-          const uidvalidityChanged =
-            savedState.uidvalidity !== null &&
-            currentStatus.uidvalidity !== savedState.uidvalidity;
+  // Existing folders: sync state from delta + fetch
+  for (const delta of syncNetworkResult.delta_results) {
+    const savedState = syncStateMap.get(delta.folder);
+    if (!savedState) continue;
 
-          if (uidvalidityChanged) {
-            deltaResultMap.set(folder.raw_path, {
-              folder: folder.raw_path,
-              uidvalidity: currentStatus.uidvalidity,
-              new_uids: [],
-              uidvalidity_changed: true,
-            });
-          } else {
-            const newUids = await imapFetchNewUids(config, folder.raw_path, savedState.last_uid);
-            deltaResultMap.set(folder.raw_path, {
-              folder: folder.raw_path,
-              uidvalidity: currentStatus.uidvalidity,
-              new_uids: newUids,
-              uidvalidity_changed: false,
-            });
-          }
-        } catch (folderErr) {
-          console.error(`[imapSync] Per-folder check failed for ${folder.path}:`, folderErr);
-        }
+    const fetch = syncNetworkResult.fetch_results.find((r) => r.folder === delta.folder);
+    const resyncSearch = syncNetworkResult.search_results.find(
+      (s) => s.folder === delta.folder && delta.uidvalidity_changed,
+    );
+
+    let lastUid = savedState.last_uid;
+    let uidvalidity = delta.uidvalidity;
+
+    if (fetch) {
+      for (const msg of fetch.messages) {
+        if (msg.uid > lastUid) lastUid = msg.uid;
+      }
+      uidvalidity = fetch.folder_status.uidvalidity;
+    } else if (delta.new_uids.length > 0) {
+      for (const uid of delta.new_uids) {
+        if (uid > lastUid) lastUid = uid;
       }
     }
 
-    for (const folder of existingFolders) {
-      const folderMapping = mapFolderToLabel(folder);
-      const savedState = syncStateMap.get(folder.raw_path)!;
-      const deltaResult = deltaResultMap.get(folder.raw_path);
+    if (resyncSearch) {
+      uidvalidity = resyncSearch.folder_status.uidvalidity;
+    }
 
-      if (!deltaResult) continue;
+    const hadActivity =
+      delta.new_uids.length > 0 ||
+      delta.uidvalidity_changed ||
+      fetch !== undefined;
 
-      try {
-        if (deltaResult.uidvalidity_changed) {
-          // UIDVALIDITY changed — full resync of this folder
-          console.warn(
-            `UIDVALIDITY changed for folder ${folder.path} ` +
-              `(was ${savedState.uidvalidity}, now ${deltaResult.uidvalidity}). ` +
-              `Doing full resync of this folder.`,
-          );
-          const sinceDate = computeSinceDate(daysBack);
-          const searchResult = await imapSearchFolder(config, folder.raw_path, sinceDate);
-          if (searchResult.uids.length === 0) continue;
-
-          const { messages, lastUid } = await fetchMessagesInBatches(
-            config,
-            folder.raw_path,
-            searchResult.uids,
-          );
-
-          for (const msg of messages) {
-            const { parsed, threadable } = imapMessageToParsedMessage(
-              msg,
-              accountId,
-              folderMapping.labelId,
-            );
-            allParsed.set(parsed.id, parsed);
-            allThreadable.push(threadable);
-            allImapMsgs.set(parsed.id, msg);
-          }
-
-          await upsertFolderSyncState({
-            account_id: accountId,
-            folder_path: folder.raw_path,
-            uidvalidity: searchResult.folder_status.uidvalidity,
-            last_uid: lastUid,
-            modseq: null,
-            last_sync_at: Math.floor(Date.now() / 1000),
-          });
-          continue;
-        }
-
-        // Normal delta: fetch the new UIDs returned by delta check
-        if (deltaResult.new_uids.length === 0) continue;
-
-        const { messages, lastUid, uidvalidity } = await fetchMessagesInBatches(
-          config,
-          folder.raw_path,
-          deltaResult.new_uids,
-        );
-
-        for (const msg of messages) {
-          const { parsed, threadable } = imapMessageToParsedMessage(
-            msg,
-            accountId,
-            folderMapping.labelId,
-          );
-          allParsed.set(parsed.id, parsed);
-          allThreadable.push(threadable);
-          allImapMsgs.set(parsed.id, msg);
-        }
-
-        await upsertFolderSyncState({
-          account_id: accountId,
-          folder_path: folder.raw_path,
-          uidvalidity,
-          last_uid: Math.max(savedState.last_uid, lastUid),
-          modseq: null,
-          last_sync_at: Math.floor(Date.now() / 1000),
-        });
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err ?? "Unknown error");
-        console.error(`Delta sync failed for folder ${folder.path}:`, err);
-        deltaFolderErrors.push(`${folder.path}: ${errMsg}`);
-      }
+    if (hadActivity) {
+      await upsertFolderSyncState({
+        account_id: accountId,
+        folder_path: delta.folder,
+        uidvalidity,
+        last_uid: lastUid,
+        modseq: null,
+        last_sync_at: now,
+      });
     }
   }
 
-  // If no new messages found and every folder errored, propagate the error
   if (allThreadable.length === 0 && deltaFolderErrors.length > 0) {
     throw new Error(`All folders failed to sync: ${deltaFolderErrors[0]}`);
   }
@@ -1196,7 +1106,6 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     return { messages: [] };
   }
 
-  // Build RFC Message-ID → labels map for cross-folder label merging
   const labelsByRfcId = new Map<string, Set<string>>();
   for (const threadable of allThreadable) {
     const parsed = allParsed.get(threadable.id);
@@ -1211,10 +1120,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     }
   }
 
-  // Thread the new messages
   const threadGroups = buildThreads(allThreadable);
-
-  // Store in DB
   const storedMessages = await storeThreadsAndMessages(
     accountId,
     threadGroups,
@@ -1223,7 +1129,6 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     labelsByRfcId,
   );
 
-  // Update sync state timestamp
   await updateAccountSyncState(accountId, `imap-synced-${Date.now()}`);
 
   return { messages: storedMessages };

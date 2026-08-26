@@ -13,7 +13,10 @@ vi.mock("../db/accounts", () => ({
   clearAccountHistoryId: vi.fn(),
 }));
 vi.mock("../db/settings", () => ({
-  getSetting: vi.fn().mockResolvedValue("365"),
+  getSetting: vi.fn((key: string) => {
+    if (key === "sync_interval_seconds") return Promise.resolve("120");
+    return Promise.resolve("365");
+  }),
 }));
 vi.mock("../db/threads", () => ({
   getThreadCountForAccount: vi.fn(),
@@ -47,6 +50,7 @@ vi.mock("../db/calendarEvents", () => ({
 }));
 vi.mock("../db/imapSyncPrefs", () => ({
   hasFolderSyncPrefs: vi.fn().mockResolvedValue(true),
+  isImapReadyForAutoSync: vi.fn().mockResolvedValue(false),
 }));
 
 // Import after mocks
@@ -56,8 +60,10 @@ import {
   stopBackgroundSync,
   triggerSync,
   onSyncStatus,
+  filterAutoSyncAccountIds,
 } from "./syncManager";
 import { getAccount } from "../db/accounts";
+import { isImapReadyForAutoSync } from "../db/imapSyncPrefs";
 import { getGmailClient } from "./tokenManager";
 import { initialSync, deltaSync } from "./sync";
 
@@ -92,6 +98,16 @@ function makeGmailAccount(id: string, historyId: string | null = null) {
     auth_method: null,
     imap_password: null,
     imap_username: null,
+  };
+}
+
+const mockIsImapReadyForAutoSync = vi.mocked(isImapReadyForAutoSync);
+
+function makeImapAccount(id: string, historyId: string | null = null) {
+  return {
+    ...makeGmailAccount(id, historyId),
+    provider: "imap" as const,
+    email: `${id}@example.com`,
   };
 }
 
@@ -171,7 +187,7 @@ describe("syncManager", () => {
     it("triggers an immediate sync by default", async () => {
       mockGetAccount.mockResolvedValue(makeGmailAccount("a1", "100"));
 
-      startBackgroundSync(["a1"]);
+      await startBackgroundSync(["a1"]);
 
       // Wait for async sync chain to complete
       await wait(50);
@@ -182,7 +198,7 @@ describe("syncManager", () => {
     it("skips immediate sync when skipImmediateSync is true", async () => {
       mockGetAccount.mockResolvedValue(makeGmailAccount("a1", "100"));
 
-      startBackgroundSync(["a1"], true);
+      await startBackgroundSync(["a1"], true);
 
       // Wait — no sync should have fired (next interval is 15s away)
       await wait(50);
@@ -205,7 +221,7 @@ describe("syncManager", () => {
 
       // Simulate the fix: sync new account first, then start background with skipImmediate
       const syncPromise = syncAccount("new-acc");
-      startBackgroundSync(["existing", "new-acc"], true);
+      await startBackgroundSync(["existing", "new-acc"], true);
 
       await syncPromise;
 
@@ -237,7 +253,7 @@ describe("syncManager", () => {
 
       // Old behavior: startBackgroundSync first (with immediate sync), then syncAccount
       // This would queue new-acc behind existing account's delta sync
-      startBackgroundSync(["existing", "new-acc"]);
+      await startBackgroundSync(["existing", "new-acc"]);
 
       // Wait for both to complete
       await wait(50);
@@ -299,6 +315,25 @@ describe("syncManager", () => {
 
       expect(errors).toHaveLength(1);
       expect(errors[0]).toBe("Unknown error");
+    });
+  });
+
+  describe("filterAutoSyncAccountIds", () => {
+    it("includes Gmail accounts", async () => {
+      mockGetAccount.mockResolvedValue(makeGmailAccount("g1", "100"));
+      await expect(filterAutoSyncAccountIds(["g1"])).resolves.toEqual(["g1"]);
+    });
+
+    it("excludes IMAP accounts until ready for auto sync", async () => {
+      mockGetAccount.mockResolvedValue(makeImapAccount("i1", null));
+      mockIsImapReadyForAutoSync.mockResolvedValue(false);
+      await expect(filterAutoSyncAccountIds(["i1"])).resolves.toEqual([]);
+    });
+
+    it("includes IMAP accounts after first sync", async () => {
+      mockGetAccount.mockResolvedValue(makeImapAccount("i1", "imap-synced-1"));
+      mockIsImapReadyForAutoSync.mockResolvedValue(true);
+      await expect(filterAutoSyncAccountIds(["i1"])).resolves.toEqual(["i1"]);
     });
   });
 });

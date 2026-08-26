@@ -84,6 +84,8 @@ test: add coverage for filter engine AND logic
 chore: bump tauri to v2.10
 ```
 
+To update `CHANGELOG.md`, ask **更新记录** — the agent will summarize changes for the current `package.json` version (see `.claude/skills/update-changelog/SKILL.md`).
+
 ## Pull Requests
 
 - Fill out the [PR template](.github/pull_request_template.md)

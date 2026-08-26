@@ -1,4 +1,5 @@
 import type { DbAccount } from "./accounts";
+import { getAccount } from "./accounts";
 import { getDb } from "./connection";
 import { getSyncableFolders, sortFoldersForSync } from "../imap/folderMapper";
 import type { ImapFolder } from "../imap/tauriCommands";
@@ -35,6 +36,26 @@ export async function hasFolderSyncPrefs(accountId: string): Promise<boolean> {
     [accountId],
   );
   return (rows[0]?.count ?? 0) > 0;
+}
+
+/** True after the user has completed at least one successful IMAP mail sync. */
+export async function hasCompletedImapInitialSync(accountId: string): Promise<boolean> {
+  const account = await getAccount(accountId);
+  return !!account?.history_id;
+}
+
+/** IMAP accounts join background auto-sync only after folder prefs exist and first sync finished. */
+export async function isImapReadyForAutoSync(accountId: string): Promise<boolean> {
+  if (!(await hasFolderSyncPrefs(accountId))) return false;
+  return hasCompletedImapInitialSync(accountId);
+}
+
+/** Show setup banner until folders are configured and first sync has run. */
+export async function needsImapSyncSetup(accountId: string): Promise<boolean> {
+  const account = await getAccount(accountId);
+  if (!account || account.provider !== "imap") return false;
+  if (!(await hasFolderSyncPrefs(accountId))) return true;
+  return !(await hasCompletedImapInitialSync(accountId));
 }
 
 export async function saveFolderSyncPrefs(

@@ -328,10 +328,9 @@ export default function App() {
           }
         }
 
-        // Background sync for Gmail only — skip immediate run on startup;
-        // IMAP accounts sync manually after user configures settings.
+        // Background sync — Gmail always; IMAP after first manual sync completes.
         if (activeIds.length > 0) {
-          startBackgroundSync(activeIds, true);
+          void startBackgroundSync(activeIds, true);
         }
 
         // Start snooze, scheduled send, follow-up, bundle, and queue checkers

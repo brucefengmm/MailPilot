@@ -35,12 +35,30 @@ vi.mock("./providers/copilotProvider", () => ({
   clearCopilotProvider: vi.fn(),
 }));
 
+vi.mock("./providers/deepseekProvider", () => ({
+  createDeepSeekProvider: vi.fn(() => createMockAiProvider("deepseek response")),
+  clearDeepSeekProvider: vi.fn(),
+}));
+
+vi.mock("./providers/glmProvider", () => ({
+  createGlmProvider: vi.fn(() => createMockAiProvider("glm response")),
+  clearGlmProvider: vi.fn(),
+}));
+
+vi.mock("./providers/kimiProvider", () => ({
+  createKimiProvider: vi.fn(() => createMockAiProvider("kimi response")),
+  clearKimiProvider: vi.fn(),
+}));
+
 import { getSetting } from "@/services/db/settings";
 import { createClaudeProvider, clearClaudeProvider } from "./providers/claudeProvider";
 import { createOpenAIProvider } from "./providers/openaiProvider";
 import { createGeminiProvider } from "./providers/geminiProvider";
 import { createOllamaProvider } from "./providers/ollamaProvider";
 import { createCopilotProvider } from "./providers/copilotProvider";
+import { createDeepSeekProvider } from "./providers/deepseekProvider";
+import { createGlmProvider } from "./providers/glmProvider";
+import { createKimiProvider } from "./providers/kimiProvider";
 import {
   getActiveProvider,
   getActiveProviderName,
@@ -80,6 +98,21 @@ describe("providerManager", () => {
     it("returns copilot when ai_provider is copilot", async () => {
       mockGetSetting.mockResolvedValue("copilot");
       expect(await getActiveProviderName()).toBe("copilot");
+    });
+
+    it("returns deepseek when ai_provider is deepseek", async () => {
+      mockGetSetting.mockResolvedValue("deepseek");
+      expect(await getActiveProviderName()).toBe("deepseek");
+    });
+
+    it("returns glm when ai_provider is glm", async () => {
+      mockGetSetting.mockResolvedValue("glm");
+      expect(await getActiveProviderName()).toBe("glm");
+    });
+
+    it("returns kimi when ai_provider is kimi", async () => {
+      mockGetSetting.mockResolvedValue("kimi");
+      expect(await getActiveProviderName()).toBe("kimi");
     });
 
     it("defaults to claude for unknown provider value", async () => {
@@ -167,6 +200,39 @@ describe("providerManager", () => {
 
       await getActiveProvider();
       expect(createCopilotProvider).toHaveBeenCalledWith("ghp_test123", "openai/gpt-4o-mini");
+    });
+
+    it("creates deepseek provider with default model", async () => {
+      mockGetSetting.mockImplementation(async (key: string) => {
+        if (key === "ai_provider") return "deepseek";
+        if (key === "deepseek_api_key") return "sk-deepseek";
+        return null;
+      });
+
+      await getActiveProvider();
+      expect(createDeepSeekProvider).toHaveBeenCalledWith("sk-deepseek", "deepseek-v4-flash");
+    });
+
+    it("creates glm provider with default model", async () => {
+      mockGetSetting.mockImplementation(async (key: string) => {
+        if (key === "ai_provider") return "glm";
+        if (key === "glm_api_key") return "glm-key";
+        return null;
+      });
+
+      await getActiveProvider();
+      expect(createGlmProvider).toHaveBeenCalledWith("glm-key", "glm-5.2");
+    });
+
+    it("creates kimi provider with default model", async () => {
+      mockGetSetting.mockImplementation(async (key: string) => {
+        if (key === "ai_provider") return "kimi";
+        if (key === "kimi_api_key") return "sk-kimi";
+        return null;
+      });
+
+      await getActiveProvider();
+      expect(createKimiProvider).toHaveBeenCalledWith("sk-kimi", "kimi-k2.6");
     });
 
     it("creates ollama provider with server url and model", async () => {

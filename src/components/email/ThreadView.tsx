@@ -22,6 +22,8 @@ import { AiTaskExtractDialog } from "@/components/tasks/AiTaskExtractDialog";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { MessageSkeleton } from "@/components/ui/Skeleton";
 import { RawMessageModal } from "./RawMessageModal";
+import { isAiAvailable } from "@/services/ai/providerManager";
+import { getSummarizeMode, getSmartRepliesMode, type AiTriggerMode } from "@/services/ai/aiPreferences";
 
 interface ThreadViewProps {
   thread: Thread;
@@ -70,6 +72,25 @@ export function ThreadView({ thread }: ThreadViewProps) {
   // null = not yet loaded; defer iframe rendering until setting is known
   const [blockImages, setBlockImages] = useState<boolean | null>(null);
   const [allowlistedSenders, setAllowlistedSenders] = useState<Set<string>>(new Set());
+  const [aiAvailable, setAiAvailable] = useState(false);
+  const [summarizeMode, setSummarizeMode] = useState<AiTriggerMode>("auto");
+  const [smartRepliesMode, setSmartRepliesMode] = useState<AiTriggerMode>("auto");
+  const [summarizeTrigger, setSummarizeTrigger] = useState(0);
+  const [repliesTrigger, setRepliesTrigger] = useState(0);
+  const [hideSummarizeButton, setHideSummarizeButton] = useState(false);
+  const [hideRepliesButton, setHideRepliesButton] = useState(false);
+
+  useEffect(() => {
+    void Promise.all([
+      isAiAvailable(),
+      getSummarizeMode(),
+      getSmartRepliesMode(),
+    ]).then(([available, sumMode, repMode]) => {
+      setAiAvailable(available);
+      setSummarizeMode(sumMode);
+      setSmartRepliesMode(repMode);
+    });
+  }, []);
 
   // Preload settings eagerly on mount (parallel with message loading)
   useEffect(() => {
@@ -227,9 +248,13 @@ export function ThreadView({ thread }: ThreadViewProps) {
   const [focusedMsgIdx, setFocusedMsgIdx] = useState(-1);
   const messageRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  // Reset focused index when thread changes
+  // Reset focused index, AI triggers, and toolbar visibility when thread changes
   useEffect(() => {
     setFocusedMsgIdx(-1);
+    setSummarizeTrigger(0);
+    setRepliesTrigger(0);
+    setHideSummarizeButton(false);
+    setHideRepliesButton(false);
   }, [thread.id]);
 
   // Scroll focused message into view
@@ -388,6 +413,13 @@ export function ThreadView({ thread }: ThreadViewProps) {
           defaultReplyMode={defaultReplyMode}
           contactSidebarVisible={contactSidebarVisible}
           taskSidebarVisible={taskSidebarVisible}
+          aiAvailable={aiAvailable}
+          summarizeMode={summarizeMode}
+          smartRepliesMode={smartRepliesMode}
+          canSummarize={messages.length > 0 && !hideSummarizeButton}
+          canQuickReplies={messages.length > 0 && !noReply && !hideRepliesButton}
+          onAiSummarize={() => setSummarizeTrigger((n) => n + 1)}
+          onQuickReplies={() => setRepliesTrigger((n) => n + 1)}
           onReply={handleReply}
           onReplyAll={handleReplyAll}
           onForward={handleForward}
@@ -416,9 +448,12 @@ export function ThreadView({ thread }: ThreadViewProps) {
         {/* AI Summary */}
         {activeAccountId && (
           <ThreadSummary
+            key={thread.id}
             threadId={thread.id}
             accountId={activeAccountId}
             messages={messages}
+            trigger={summarizeTrigger}
+            onToolbarHideChange={setHideSummarizeButton}
           />
         )}
 
@@ -443,10 +478,13 @@ export function ThreadView({ thread }: ThreadViewProps) {
           {/* Smart Reply Suggestions */}
           {activeAccountId && messages.length > 0 && (
             <SmartReplySuggestions
+              key={thread.id}
               threadId={thread.id}
               accountId={activeAccountId}
               messages={messages}
               noReply={noReply}
+              trigger={repliesTrigger}
+              onToolbarHideChange={setHideRepliesButton}
             />
           )}
 

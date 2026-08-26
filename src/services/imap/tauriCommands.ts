@@ -130,6 +130,47 @@ export interface DeltaCheckResult {
   uidvalidity_changed: boolean;
 }
 
+// ---------- Batch sync types ----------
+
+export interface SearchFolderRequest {
+  folder: string;
+  since_date?: string | null;
+}
+
+export interface ImapFolderSearchBatchResult {
+  folder: string;
+  uids: number[];
+  folder_status: ImapFolderStatus;
+}
+
+export interface FolderUidFetch {
+  folder: string;
+  uids: number[];
+  /** When true, fetch full body even if request.headers_only is set (e.g. UIDVALIDITY resync). */
+  full_body?: boolean;
+}
+
+export interface ImapFolderFetchBatchResult {
+  folder: string;
+  messages: ImapMessage[];
+  folder_status: ImapFolderStatus;
+}
+
+export interface ImapDeltaSyncRequest {
+  new_folder_searches: SearchFolderRequest[];
+  delta_checks: DeltaCheckRequest[];
+  fetches: FolderUidFetch[];
+  headers_only?: boolean;
+  /** SINCE date for UIDVALIDITY-changed folder resync (DD-Mon-YYYY). */
+  resync_since_date?: string | null;
+}
+
+export interface ImapDeltaSyncResult {
+  search_results: ImapFolderSearchBatchResult[];
+  delta_results: DeltaCheckResult[];
+  fetch_results: ImapFolderFetchBatchResult[];
+}
+
 // ---------- SMTP types ----------
 
 export interface SmtpConfig {
@@ -322,6 +363,49 @@ export async function imapDeltaCheck(
   folders: DeltaCheckRequest[]
 ): Promise<DeltaCheckResult[]> {
   return invoke<DeltaCheckResult[]>('imap_delta_check', { config, folders });
+}
+
+/**
+ * Search multiple folders in a single IMAP connection.
+ */
+export async function imapSearchFoldersBatch(
+  config: ImapConfig,
+  folders: SearchFolderRequest[],
+): Promise<ImapFolderSearchBatchResult[]> {
+  return invoke<ImapFolderSearchBatchResult[]>('imap_search_folders_batch', { config, folders });
+}
+
+/**
+ * Fetch multiple UID batches for one folder in a single IMAP connection.
+ */
+export async function imapFetchMessagesBatched(
+  config: ImapConfig,
+  folder: string,
+  uids: number[],
+  options?: { headersOnly?: boolean; batchSize?: number },
+): Promise<ImapFetchResult> {
+  const batchSize = options?.batchSize ?? 50;
+  const uidBatches: number[][] = [];
+  for (let i = 0; i < uids.length; i += batchSize) {
+    uidBatches.push(uids.slice(i, i + batchSize));
+  }
+  return invoke<ImapFetchResult>('imap_fetch_messages_batched', {
+    config,
+    folder,
+    uidBatches,
+    headersOnly: options?.headersOnly ?? false,
+  });
+}
+
+/**
+ * Run delta sync network ops with minimal IMAP connections:
+ * one session for searches + delta checks, one per folder for batched fetches.
+ */
+export async function imapRunDeltaSync(
+  config: ImapConfig,
+  request: ImapDeltaSyncRequest,
+): Promise<ImapDeltaSyncResult> {
+  return invoke<ImapDeltaSyncResult>('imap_run_delta_sync', { config, request });
 }
 
 /**

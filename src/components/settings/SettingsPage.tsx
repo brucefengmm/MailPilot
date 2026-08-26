@@ -4,10 +4,28 @@ import { useUIStore } from "@/stores/uiStore";
 import { navigateToLabel, navigateToSettings } from "@/router/navigate";
 import { useAccountStore } from "@/stores/accountStore";
 import { getSetting, setSetting, getSecureSetting, setSecureSetting } from "@/services/db/settings";
-import { PROVIDER_MODELS } from "@/services/ai/types";
+import {
+  API_KEY_LABELS,
+  API_KEY_PLACEHOLDERS,
+  API_KEY_SETTINGS,
+  DEFAULT_MODELS,
+  MODEL_SETTINGS,
+  PROVIDER_MODELS,
+  type AiProvider,
+  type ApiKeyAiProvider,
+  isAiProvider,
+} from "@/services/ai/types";
+import {
+  AI_LANGUAGE_OPTIONS,
+  AI_TRIGGER_MODE_OPTIONS,
+  type AiOutputLanguage,
+  type AiTriggerMode,
+  parseAiOutputLanguage,
+  parseAiTriggerMode,
+} from "@/services/ai/aiPreferences";
 import { deleteAccount } from "@/services/db/accounts";
 import { removeClient, reauthorizeAccount } from "@/services/gmail/tokenManager";
-import { triggerSync, forceFullSync, resyncAccount } from "@/services/gmail/syncManager";
+import { triggerSync, forceFullSync, resyncAccount, restartBackgroundSync } from "@/services/gmail/syncManager";
 import {
   registerComposeShortcut,
   getCurrentShortcut,
@@ -109,24 +127,34 @@ export function SettingsPage() {
   const [apiSettingsSaved, setApiSettingsSaved] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncPeriodDays, setSyncPeriodDays] = useState("365");
+  const [syncIntervalSeconds, setSyncIntervalSeconds] = useState("120");
   const [blockRemoteImages, setBlockRemoteImages] = useState(true);
   const [phishingDetectionEnabled, setPhishingDetectionEnabled] = useState(true);
   const [phishingSensitivity, setPhishingSensitivity] = useState<"low" | "default" | "high">("default");
   const [autostartEnabled, setAutostartEnabled] = useState(false);
-  const [aiProvider, setAiProvider] = useState<"claude" | "openai" | "gemini" | "ollama" | "copilot">("claude");
+  const [aiProvider, setAiProvider] = useState<AiProvider>("claude");
   const [claudeApiKey, setClaudeApiKey] = useState("");
   const [openaiApiKey, setOpenaiApiKey] = useState("");
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [copilotApiKey, setCopilotApiKey] = useState("");
+  const [deepseekApiKey, setDeepseekApiKey] = useState("");
+  const [glmApiKey, setGlmApiKey] = useState("");
+  const [kimiApiKey, setKimiApiKey] = useState("");
   const [ollamaServerUrl, setOllamaServerUrl] = useState("http://localhost:11434");
   const [ollamaModel, setOllamaModel] = useState("llama3.2");
-  const [claudeModel, setClaudeModel] = useState("claude-haiku-4-5-20251001");
-  const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
-  const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash-preview-05-20");
-  const [copilotModel, setCopilotModel] = useState("openai/gpt-4o-mini");
+  const [claudeModel, setClaudeModel] = useState(DEFAULT_MODELS.claude);
+  const [openaiModel, setOpenaiModel] = useState(DEFAULT_MODELS.openai);
+  const [geminiModel, setGeminiModel] = useState(DEFAULT_MODELS.gemini);
+  const [copilotModel, setCopilotModel] = useState(DEFAULT_MODELS.copilot);
+  const [deepseekModel, setDeepseekModel] = useState(DEFAULT_MODELS.deepseek);
+  const [glmModel, setGlmModel] = useState(DEFAULT_MODELS.glm);
+  const [kimiModel, setKimiModel] = useState(DEFAULT_MODELS.kimi);
   const [aiEnabled, setAiEnabled] = useState(true);
   const [aiAutoCategorize, setAiAutoCategorize] = useState(true);
-  const [aiAutoSummarize, setAiAutoSummarize] = useState(true);
+  const [aiSummarizeMode, setAiSummarizeMode] = useState<AiTriggerMode>("auto");
+  const [aiSmartRepliesMode, setAiSmartRepliesMode] = useState<AiTriggerMode>("auto");
+  const [aiSummaryLanguage, setAiSummaryLanguage] = useState<AiOutputLanguage>("en");
+  const [aiRepliesLanguage, setAiRepliesLanguage] = useState<AiOutputLanguage>("en");
   const [aiKeySaved, setAiKeySaved] = useState(false);
   const [aiTesting, setAiTesting] = useState(false);
   const [aiTestResult, setAiTestResult] = useState<"success" | "fail" | null>(null);
@@ -165,6 +193,8 @@ export function SettingsPage() {
       if (phishingSens === "low" || phishingSens === "high") setPhishingSensitivity(phishingSens);
       const syncDays = await getSetting("sync_period_days");
       setSyncPeriodDays(syncDays ?? "365");
+      const syncInterval = await getSetting("sync_interval_seconds");
+      setSyncIntervalSeconds(syncInterval ?? "120");
 
       // Load autostart state
       try {
@@ -176,7 +206,7 @@ export function SettingsPage() {
 
       // Load AI settings
       const provider = await getSetting("ai_provider");
-      if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot") setAiProvider(provider);
+      if (isAiProvider(provider)) setAiProvider(provider);
       const ollamaUrl = await getSetting("ollama_server_url");
       if (ollamaUrl) setOllamaServerUrl(ollamaUrl);
       const ollamaModelVal = await getSetting("ollama_model");
@@ -187,6 +217,12 @@ export function SettingsPage() {
       if (openaiModelVal) setOpenaiModel(openaiModelVal);
       const geminiModelVal = await getSetting("gemini_model");
       if (geminiModelVal) setGeminiModel(geminiModelVal);
+      const deepseekModelVal = await getSetting("deepseek_model");
+      if (deepseekModelVal) setDeepseekModel(deepseekModelVal);
+      const glmModelVal = await getSetting("glm_model");
+      if (glmModelVal) setGlmModel(glmModelVal);
+      const kimiModelVal = await getSetting("kimi_model");
+      if (kimiModelVal) setKimiModel(kimiModelVal);
       const aiKey = await getSecureSetting("claude_api_key");
       setClaudeApiKey(aiKey ?? "");
       const oaiKey = await getSecureSetting("openai_api_key");
@@ -195,14 +231,29 @@ export function SettingsPage() {
       setGeminiApiKey(gemKey ?? "");
       const copKey = await getSecureSetting("copilot_api_key");
       setCopilotApiKey(copKey ?? "");
+      const deepseekKey = await getSecureSetting("deepseek_api_key");
+      setDeepseekApiKey(deepseekKey ?? "");
+      const glmKey = await getSecureSetting("glm_api_key");
+      setGlmApiKey(glmKey ?? "");
+      const kimiKey = await getSecureSetting("kimi_api_key");
+      setKimiApiKey(kimiKey ?? "");
       const copilotModelVal = await getSetting("copilot_model");
       if (copilotModelVal) setCopilotModel(copilotModelVal);
       const aiEn = await getSetting("ai_enabled");
       setAiEnabled(aiEn !== "false");
       const aiCat = await getSetting("ai_auto_categorize");
       setAiAutoCategorize(aiCat !== "false");
-      const aiSum = await getSetting("ai_auto_summarize");
-      setAiAutoSummarize(aiSum !== "false");
+      const summarizeModeVal = await getSetting("ai_summarize_mode");
+      if (summarizeModeVal === "auto" || summarizeModeVal === "manual") {
+        setAiSummarizeMode(parseAiTriggerMode(summarizeModeVal));
+      } else {
+        const legacySummarize = await getSetting("ai_auto_summarize");
+        setAiSummarizeMode(legacySummarize === "false" ? "manual" : "auto");
+      }
+      const repliesModeVal = await getSetting("ai_smart_replies_mode");
+      setAiSmartRepliesMode(parseAiTriggerMode(repliesModeVal));
+      setAiSummaryLanguage(parseAiOutputLanguage(await getSetting("ai_summary_language")));
+      setAiRepliesLanguage(parseAiOutputLanguage(await getSetting("ai_replies_language")));
       const aiDraft = await getSetting("ai_auto_draft_enabled");
       setAiAutoDraftEnabled(aiDraft !== "false");
       const aiStyle = await getSetting("ai_writing_style_enabled");
@@ -245,6 +296,26 @@ export function SettingsPage() {
     }
     load();
   }, []);
+
+  const apiKeyByProvider: Record<ApiKeyAiProvider, { value: string; set: (v: string) => void }> = {
+    claude: { value: claudeApiKey, set: setClaudeApiKey },
+    openai: { value: openaiApiKey, set: setOpenaiApiKey },
+    gemini: { value: geminiApiKey, set: setGeminiApiKey },
+    copilot: { value: copilotApiKey, set: setCopilotApiKey },
+    deepseek: { value: deepseekApiKey, set: setDeepseekApiKey },
+    glm: { value: glmApiKey, set: setGlmApiKey },
+    kimi: { value: kimiApiKey, set: setKimiApiKey },
+  };
+
+  const modelByProvider: Record<ApiKeyAiProvider, { value: string; set: (v: string) => void }> = {
+    claude: { value: claudeModel, set: setClaudeModel },
+    openai: { value: openaiModel, set: setOpenaiModel },
+    gemini: { value: geminiModel, set: setGeminiModel },
+    copilot: { value: copilotModel, set: setCopilotModel },
+    deepseek: { value: deepseekModel, set: setDeepseekModel },
+    glm: { value: glmModel, set: setGlmModel },
+    kimi: { value: kimiModel, set: setKimiModel },
+  };
 
   const handleNotificationsToggle = useCallback(async () => {
     const newVal = !notificationsEnabled;
@@ -983,6 +1054,30 @@ export function SettingsPage() {
                   </Section>
 
                   <Section title="Sync">
+                    <SettingRow label="Auto-refresh interval">
+                      <select
+                        value={syncIntervalSeconds}
+                        onChange={async (e) => {
+                          const val = e.target.value;
+                          setSyncIntervalSeconds(val);
+                          await setSetting("sync_interval_seconds", val);
+                          const activeIds = accounts.filter((a) => a.isActive).map((a) => a.id);
+                          if (activeIds.length > 0) {
+                            await restartBackgroundSync(activeIds);
+                          }
+                        }}
+                        className="text-sm bg-bg-tertiary text-text-primary px-2 py-1 rounded border border-border-primary"
+                      >
+                        <option value="30">Every 30 seconds</option>
+                        <option value="60">Every 60 seconds</option>
+                        <option value="120">Every 2 minutes</option>
+                        <option value="300">Every 5 minutes</option>
+                        <option value="600">Every 10 minutes</option>
+                      </select>
+                    </SettingRow>
+                    <p className="text-xs text-text-tertiary -mt-2 mb-2">
+                      How often MailPilot checks for new mail in the background.
+                    </p>
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-text-secondary">
                         Check for new mail
@@ -1059,7 +1154,8 @@ export function SettingsPage() {
                       <select
                         value={aiProvider}
                         onChange={async (e) => {
-                          const val = e.target.value as "claude" | "openai" | "gemini" | "ollama" | "copilot";
+                          const val = e.target.value;
+                          if (!isAiProvider(val)) return;
                           setAiProvider(val);
                           setAiTestResult(null);
                           await setSetting("ai_provider", val);
@@ -1068,6 +1164,9 @@ export function SettingsPage() {
                         }}
                         className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
                       >
+                        <option value="deepseek">DeepSeek</option>
+                        <option value="glm">智谱 GLM</option>
+                        <option value="kimi">Kimi (Moonshot)</option>
                         <option value="claude">Claude (Anthropic)</option>
                         <option value="openai">OpenAI</option>
                         <option value="gemini">Gemini (Google)</option>
@@ -1076,11 +1175,17 @@ export function SettingsPage() {
                       </select>
                     </SettingRow>
                     <p className="text-xs text-text-tertiary">
-                      {aiProvider === "claude" && `Uses ${PROVIDER_MODELS.claude.find((m) => m.id === claudeModel)?.label ?? claudeModel}.`}
-                      {aiProvider === "openai" && `Uses ${PROVIDER_MODELS.openai.find((m) => m.id === openaiModel)?.label ?? openaiModel}.`}
-                      {aiProvider === "gemini" && `Uses ${PROVIDER_MODELS.gemini.find((m) => m.id === geminiModel)?.label ?? geminiModel}.`}
-                      {aiProvider === "ollama" && "Connect to a local Ollama or LMStudio server. No API key required."}
-                      {aiProvider === "copilot" && `Uses ${PROVIDER_MODELS.copilot.find((m) => m.id === copilotModel)?.label ?? copilotModel}. Requires a GitHub PAT with models:read permission.`}
+                      {aiProvider === "ollama"
+                        ? "Connect to a local Ollama or LMStudio server. No API key required."
+                        : aiProvider === "copilot"
+                          ? `Uses ${PROVIDER_MODELS.copilot.find((m) => m.id === copilotModel)?.label ?? copilotModel}. Requires a GitHub PAT with models:read permission.`
+                          : aiProvider === "deepseek"
+                            ? `Uses ${PROVIDER_MODELS.deepseek.find((m) => m.id === deepseekModel)?.label ?? deepseekModel}. API: api.deepseek.com`
+                            : aiProvider === "glm"
+                              ? `Uses ${PROVIDER_MODELS.glm.find((m) => m.id === glmModel)?.label ?? glmModel}. API: open.bigmodel.cn`
+                              : aiProvider === "kimi"
+                                ? `Uses ${PROVIDER_MODELS.kimi.find((m) => m.id === kimiModel)?.label ?? kimiModel}. API: api.moonshot.cn`
+                                : `Uses ${PROVIDER_MODELS[aiProvider].find((m) => m.id === modelByProvider[aiProvider].value)?.label ?? modelByProvider[aiProvider].value}.`}
                     </p>
                   </Section>
 
@@ -1151,54 +1256,20 @@ export function SettingsPage() {
                     <Section title="API Key">
                       <div className="space-y-3">
                         <TextField
-                          label={
-                            aiProvider === "claude" ? "Anthropic API Key"
-                            : aiProvider === "openai" ? "OpenAI API Key"
-                            : aiProvider === "copilot" ? "GitHub Personal Access Token"
-                            : "Google AI API Key"
-                          }
+                          label={API_KEY_LABELS[aiProvider]}
                           size="md"
                           type="password"
-                          value={
-                            aiProvider === "claude" ? claudeApiKey
-                            : aiProvider === "openai" ? openaiApiKey
-                            : aiProvider === "copilot" ? copilotApiKey
-                            : geminiApiKey
-                          }
-                          onChange={(e) => {
-                            if (aiProvider === "claude") setClaudeApiKey(e.target.value);
-                            else if (aiProvider === "openai") setOpenaiApiKey(e.target.value);
-                            else if (aiProvider === "copilot") setCopilotApiKey(e.target.value);
-                            else setGeminiApiKey(e.target.value);
-                          }}
-                          placeholder={
-                            aiProvider === "claude" ? "sk-ant-..."
-                            : aiProvider === "openai" ? "sk-..."
-                            : aiProvider === "copilot" ? "ghp_..."
-                            : "AI..."
-                          }
+                          value={apiKeyByProvider[aiProvider].value}
+                          onChange={(e) => apiKeyByProvider[aiProvider].set(e.target.value)}
+                          placeholder={API_KEY_PLACEHOLDERS[aiProvider]}
                         />
                         <SettingRow label="Model">
                           <select
-                            value={
-                              aiProvider === "claude" ? claudeModel
-                              : aiProvider === "openai" ? openaiModel
-                              : aiProvider === "copilot" ? copilotModel
-                              : geminiModel
-                            }
+                            value={modelByProvider[aiProvider].value}
                             onChange={async (e) => {
                               const val = e.target.value;
-                              const modelSettingMap = {
-                                claude: "claude_model",
-                                openai: "openai_model",
-                                gemini: "gemini_model",
-                                copilot: "copilot_model",
-                              } as const;
-                              if (aiProvider === "claude") setClaudeModel(val);
-                              else if (aiProvider === "openai") setOpenaiModel(val);
-                              else if (aiProvider === "copilot") setCopilotModel(val);
-                              else setGeminiModel(val);
-                              await setSetting(modelSettingMap[aiProvider], val);
+                              modelByProvider[aiProvider].set(val);
+                              await setSetting(MODEL_SETTINGS[aiProvider], val);
                               const { clearProviderClients } = await import("@/services/ai/providerManager");
                               clearProviderClients();
                             }}
@@ -1214,31 +1285,16 @@ export function SettingsPage() {
                             variant="primary"
                             size="md"
                             onClick={async () => {
-                              const keySettingMap = {
-                                claude: "claude_api_key",
-                                openai: "openai_api_key",
-                                gemini: "gemini_api_key",
-                                copilot: "copilot_api_key",
-                              } as const;
-                              const keyValue =
-                                aiProvider === "claude" ? claudeApiKey.trim()
-                                : aiProvider === "openai" ? openaiApiKey.trim()
-                                : aiProvider === "copilot" ? copilotApiKey.trim()
-                                : geminiApiKey.trim();
+                              const keyValue = apiKeyByProvider[aiProvider].value.trim();
                               if (keyValue) {
-                                await setSecureSetting(keySettingMap[aiProvider], keyValue);
+                                await setSecureSetting(API_KEY_SETTINGS[aiProvider], keyValue);
                                 const { clearProviderClients } = await import("@/services/ai/providerManager");
                                 clearProviderClients();
                               }
                               setAiKeySaved(true);
                               setTimeout(() => setAiKeySaved(false), 2000);
                             }}
-                            disabled={
-                              !(aiProvider === "claude" ? claudeApiKey.trim()
-                              : aiProvider === "openai" ? openaiApiKey.trim()
-                              : aiProvider === "copilot" ? copilotApiKey.trim()
-                              : geminiApiKey.trim())
-                            }
+                            disabled={!apiKeyByProvider[aiProvider].value.trim()}
                           >
                             {aiKeySaved ? "Saved!" : "Save Key"}
                           </Button>
@@ -1258,12 +1314,7 @@ export function SettingsPage() {
                                 setAiTesting(false);
                               }
                             }}
-                            disabled={
-                              !(aiProvider === "claude" ? claudeApiKey.trim()
-                              : aiProvider === "openai" ? openaiApiKey.trim()
-                              : aiProvider === "copilot" ? copilotApiKey.trim()
-                              : geminiApiKey.trim()) || aiTesting
-                            }
+                            disabled={!apiKeyByProvider[aiProvider].value.trim() || aiTesting}
                             className="bg-bg-tertiary text-text-primary border border-border-primary"
                           >
                             {aiTesting ? "Testing..." : "Test Connection"}
@@ -1300,16 +1351,72 @@ export function SettingsPage() {
                         await setSetting("ai_auto_categorize", newVal ? "true" : "false");
                       }}
                     />
-                    <ToggleRow
-                      label="Auto-summarize threads"
-                      description="Show AI summaries on multi-message threads"
-                      checked={aiAutoSummarize}
-                      onToggle={async () => {
-                        const newVal = !aiAutoSummarize;
-                        setAiAutoSummarize(newVal);
-                        await setSetting("ai_auto_summarize", newVal ? "true" : "false");
-                      }}
-                    />
+                    <SettingRow label="Thread summary">
+                      <select
+                        value={aiSummarizeMode}
+                        onChange={async (e) => {
+                          const val = parseAiTriggerMode(e.target.value);
+                          setAiSummarizeMode(val);
+                          await setSetting("ai_summarize_mode", val);
+                        }}
+                        className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
+                      >
+                        {AI_TRIGGER_MODE_OPTIONS.map((opt) => (
+                          <option key={opt.id} value={opt.id}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </SettingRow>
+                    <p className="text-xs text-text-tertiary -mt-1 mb-2">
+                      Automatic shows AI Summary when opening a thread. Manual adds an AI Summarize button to the toolbar.
+                    </p>
+                    <SettingRow label="Summary language">
+                      <select
+                        value={aiSummaryLanguage}
+                        onChange={async (e) => {
+                          const val = parseAiOutputLanguage(e.target.value);
+                          setAiSummaryLanguage(val);
+                          await setSetting("ai_summary_language", val);
+                        }}
+                        className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
+                      >
+                        {AI_LANGUAGE_OPTIONS.map((opt) => (
+                          <option key={opt.id} value={opt.id}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </SettingRow>
+                    <SettingRow label="Quick replies">
+                      <select
+                        value={aiSmartRepliesMode}
+                        onChange={async (e) => {
+                          const val = parseAiTriggerMode(e.target.value);
+                          setAiSmartRepliesMode(val);
+                          await setSetting("ai_smart_replies_mode", val);
+                        }}
+                        className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
+                      >
+                        {AI_TRIGGER_MODE_OPTIONS.map((opt) => (
+                          <option key={opt.id} value={opt.id}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </SettingRow>
+                    <p className="text-xs text-text-tertiary -mt-1 mb-2">
+                      Automatic generates Quick Replies when viewing a thread. Manual adds a Quick Replies button to the toolbar.
+                    </p>
+                    <SettingRow label="Replies language">
+                      <select
+                        value={aiRepliesLanguage}
+                        onChange={async (e) => {
+                          const val = parseAiOutputLanguage(e.target.value);
+                          setAiRepliesLanguage(val);
+                          await setSetting("ai_replies_language", val);
+                        }}
+                        className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
+                      >
+                        {AI_LANGUAGE_OPTIONS.map((opt) => (
+                          <option key={opt.id} value={opt.id}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </SettingRow>
                   </Section>
 
                   <Section title="Auto-Draft Replies">

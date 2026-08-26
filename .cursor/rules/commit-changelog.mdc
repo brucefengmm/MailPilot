@@ -1,0 +1,14 @@
+---
+description: Commit workflow — CHANGELOG is updated on demand, not per commit
+alwaysApply: true
+---
+
+# Commit
+
+Use [Conventional Commits](https://www.conventionalcommits.org/) — see `.claude/skills/commit/SKILL.md`.
+
+## CHANGELOG
+
+**Do not** edit `CHANGELOG.md` when committing unless the user also asks to **更新记录** in the same request.
+
+When the user says **更新记录** / **update changelog**, follow `.cursor/rules/update-changelog.mdc` and `.claude/skills/update-changelog/SKILL.md`.

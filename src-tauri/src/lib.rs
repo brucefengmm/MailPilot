@@ -111,6 +111,9 @@ pub fn run() {
             commands::imap_sync_folder_streaming,
             commands::imap_raw_fetch_diagnostic,
             commands::imap_delta_check,
+            commands::imap_search_folders_batch,
+            commands::imap_fetch_messages_batched,
+            commands::imap_run_delta_sync,
             commands::smtp_send_email,
             commands::smtp_test_connection,
         ])

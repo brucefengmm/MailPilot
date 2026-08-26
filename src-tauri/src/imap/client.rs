@@ -354,6 +354,76 @@ pub async fn fetch_messages(
     })
 }
 
+/// Fetch message headers only (no body) for a UID set — used during delta sync.
+pub async fn fetch_message_headers(
+    session: &mut ImapSession,
+    folder: &str,
+    uid_range: &str,
+) -> Result<ImapFetchResult, String> {
+    let mailbox = tokio::time::timeout(IMAP_CMD_TIMEOUT, session.select(folder))
+        .await
+        .map_err(|_| format!("SELECT {folder} timed out after {}s — check your server settings or network connection", IMAP_CMD_TIMEOUT.as_secs()))?
+        .map_err(|e| format!("SELECT {folder} failed: {e}"))?;
+
+    let folder_status = ImapFolderStatus {
+        uidvalidity: mailbox.uid_validity.unwrap_or(0),
+        uidnext: mailbox.uid_next.unwrap_or(0),
+        exists: mailbox.exists,
+        unseen: mailbox.unseen.unwrap_or(0),
+        highest_modseq: mailbox.highest_modseq,
+    };
+
+    let fetches = tokio::time::timeout(IMAP_FETCH_TIMEOUT, async {
+        let stream = session
+            .uid_fetch(uid_range, "UID FLAGS INTERNALDATE BODY.PEEK[HEADER]")
+            .await
+            .map_err(|e| format!("UID FETCH headers {folder} uids={uid_range} failed: {e}"))?;
+        Ok::<_, String>(stream.collect::<Vec<_>>().await)
+    })
+    .await
+    .map_err(|_| format!("UID FETCH headers {folder} timed out after {}s", IMAP_FETCH_TIMEOUT.as_secs()))?;
+
+    let raw_fetches: Vec<_> = fetches?;
+    let parser = MessageParser::default();
+    let mut messages = Vec::new();
+    for r in raw_fetches {
+        let fetch = match r {
+            Ok(f) => f,
+            Err(e) => {
+                log::warn!("IMAP header fetch stream error in {folder}: {e}");
+                continue;
+            }
+        };
+
+        let uid = match fetch.uid {
+            Some(u) => u,
+            None => continue,
+        };
+
+        let raw = match fetch.body() {
+            Some(b) => b,
+            None => continue,
+        };
+
+        let raw_size = raw.len() as u32;
+        let flags: Vec<_> = fetch.flags().collect();
+        let is_read = flags.iter().any(|f| matches!(f, Flag::Seen));
+        let is_starred = flags.iter().any(|f| matches!(f, Flag::Flagged));
+        let is_draft = flags.iter().any(|f| matches!(f, Flag::Draft));
+        let internal_date = fetch.internal_date().map(|dt| dt.timestamp());
+
+        match parse_message(&parser, raw, uid, folder, raw_size, is_read, is_starred, is_draft, internal_date) {
+            Ok(msg) => messages.push(msg),
+            Err(e) => log::warn!("Failed to parse headers UID {uid}: {e}"),
+        }
+    }
+
+    Ok(ImapFetchResult {
+        messages,
+        folder_status,
+    })
+}
+
 /// Fetch a single message body by UID.
 pub async fn fetch_message_body(
     session: &mut ImapSession,
@@ -860,6 +930,176 @@ pub async fn search_folder(
     Ok(ImapFolderSearchResult {
         uids,
         folder_status,
+    })
+}
+
+/// Search multiple folders in one IMAP session.
+pub async fn search_folders_batch(
+    session: &mut ImapSession,
+    requests: &[SearchFolderRequest],
+) -> Result<Vec<ImapFolderSearchBatchResult>, String> {
+    let mut results = Vec::with_capacity(requests.len());
+    for req in requests {
+        match search_folder(session, &req.folder, req.since_date.clone()).await {
+            Ok(r) => results.push(ImapFolderSearchBatchResult {
+                folder: req.folder.clone(),
+                uids: r.uids,
+                folder_status: r.folder_status,
+            }),
+            Err(e) => {
+                log::warn!("search_folders_batch: {} failed: {e}", req.folder);
+            }
+        }
+    }
+    Ok(results)
+}
+
+/// Fetch UID batches for one folder on an existing session.
+pub async fn fetch_messages_batched_on_session(
+    session: &mut ImapSession,
+    folder: &str,
+    uid_batches: &[Vec<u32>],
+    headers_only: bool,
+) -> Result<ImapFetchResult, String> {
+    let mut all_messages = Vec::new();
+    let mut folder_status = ImapFolderStatus {
+        uidvalidity: 0,
+        uidnext: 0,
+        exists: 0,
+        unseen: 0,
+        highest_modseq: None,
+    };
+
+    for batch in uid_batches {
+        if batch.is_empty() {
+            continue;
+        }
+        let uid_set: String = batch
+            .iter()
+            .map(|u| u.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let result = if headers_only {
+            fetch_message_headers(session, folder, &uid_set).await?
+        } else {
+            fetch_messages(session, folder, &uid_set).await?
+        };
+        folder_status = result.folder_status;
+        all_messages.extend(result.messages);
+    }
+
+    Ok(ImapFetchResult {
+        messages: all_messages,
+        folder_status,
+    })
+}
+
+/// Fetch all UID batches for one folder using a single connection.
+pub async fn fetch_messages_batched(
+    config: &ImapConfig,
+    folder: &str,
+    uid_batches: &[Vec<u32>],
+    headers_only: bool,
+) -> Result<ImapFetchResult, String> {
+    if uid_batches.is_empty() || uid_batches.iter().all(|b| b.is_empty()) {
+        return Err("No UIDs provided".to_string());
+    }
+
+    if prefer_raw_imap_fetch(&config.host) {
+        return raw_fetch_messages_batched(config, folder, uid_batches, headers_only).await;
+    }
+
+    let mut session = connect(config).await?;
+    let result = fetch_messages_batched_on_session(&mut session, folder, uid_batches, headers_only).await;
+    let _ = session.logout().await;
+    result
+}
+
+/// Run delta sync network operations in minimal connections.
+pub async fn run_delta_sync(
+    config: &ImapConfig,
+    request: &ImapDeltaSyncRequest,
+) -> Result<ImapDeltaSyncResult, String> {
+    let mut search_results = Vec::new();
+    let mut delta_results = Vec::new();
+
+    if !request.new_folder_searches.is_empty() || !request.delta_checks.is_empty() {
+        let mut session = connect(config).await?;
+        if !request.new_folder_searches.is_empty() {
+            search_results = search_folders_batch(&mut session, &request.new_folder_searches).await?;
+        }
+        if !request.delta_checks.is_empty() {
+            delta_results = delta_check_folders(&mut session, &request.delta_checks).await?;
+        }
+        // UIDVALIDITY changed — re-search affected folders in the same session
+        for dr in &delta_results {
+            if dr.uidvalidity_changed {
+                if let Some(since) = &request.resync_since_date {
+                    match search_folder(&mut session, &dr.folder, Some(since.clone())).await {
+                        Ok(r) => search_results.push(ImapFolderSearchBatchResult {
+                            folder: dr.folder.clone(),
+                            uids: r.uids,
+                            folder_status: r.folder_status,
+                        }),
+                        Err(e) => {
+                            log::warn!("run_delta_sync: resync search {} failed: {e}", dr.folder);
+                        }
+                    }
+                }
+            }
+        }
+        let _ = session.logout().await;
+    }
+
+    let mut fetches = request.fetches.clone();
+    if fetches.is_empty() {
+        for sr in &search_results {
+            if !sr.uids.is_empty() {
+                fetches.push(FolderUidFetch {
+                    folder: sr.folder.clone(),
+                    uids: sr.uids.clone(),
+                    full_body: true,
+                });
+            }
+        }
+        for dr in &delta_results {
+            if !dr.uidvalidity_changed && !dr.new_uids.is_empty() {
+                fetches.push(FolderUidFetch {
+                    folder: dr.folder.clone(),
+                    uids: dr.new_uids.clone(),
+                    full_body: false,
+                });
+            }
+        }
+    }
+
+    let mut fetch_results = Vec::new();
+    for fetch in &fetches {
+        if fetch.uids.is_empty() {
+            continue;
+        }
+        let headers_only = request.headers_only && !fetch.full_body;
+        let batches: Vec<Vec<u32>> = fetch
+            .uids
+            .chunks(50)
+            .map(|chunk| chunk.to_vec())
+            .collect();
+        match fetch_messages_batched(config, &fetch.folder, &batches, headers_only).await {
+            Ok(r) => fetch_results.push(ImapFolderFetchBatchResult {
+                folder: fetch.folder.clone(),
+                messages: r.messages,
+                folder_status: r.folder_status,
+            }),
+            Err(e) => {
+                log::warn!("run_delta_sync: fetch {} failed: {e}", fetch.folder);
+            }
+        }
+    }
+
+    Ok(ImapDeltaSyncResult {
+        search_results,
+        delta_results,
+        fetch_results,
     })
 }
 
@@ -1509,6 +1749,122 @@ pub async fn raw_fetch_messages(
 
     // LOGOUT
     let _ = reader.get_mut().write_all(b"a4 LOGOUT\r\n").await;
+
+    Ok(ImapFetchResult { messages, folder_status })
+}
+
+/// Raw IMAP fetch: one connection, multiple UID batches (full body or headers only).
+pub async fn raw_fetch_messages_batched(
+    config: &ImapConfig,
+    folder: &str,
+    uid_batches: &[Vec<u32>],
+    headers_only: bool,
+) -> Result<ImapFetchResult, String> {
+    log::info!(
+        "RAW IMAP FETCH batched: {}:{} folder={folder}, {} batches, headers_only={headers_only}",
+        config.host,
+        config.port,
+        uid_batches.len(),
+    );
+
+    let stream = if config.security == "starttls" {
+        raw_connect_starttls(config).await?
+    } else {
+        connect_stream(config).await?
+    };
+
+    let mut reader = BufReader::new(stream);
+
+    if config.security != "starttls" {
+        let mut line = String::new();
+        reader.read_line(&mut line).await.map_err(|e| format!("greeting: {e}"))?;
+    }
+
+    let login_cmd = if config.auth_method == "oauth2" {
+        let xoauth2 = format!("user={}\x01auth=Bearer {}\x01\x01", config.username, config.password);
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, xoauth2.as_bytes());
+        format!("a1 AUTHENTICATE XOAUTH2 {b64}\r\n")
+    } else {
+        format!("a1 LOGIN \"{}\" \"{}\"\r\n", config.username, config.password)
+    };
+    raw_send_and_wait(&mut reader, login_cmd.as_bytes(), "a1").await?;
+
+    let select_cmd = format!("a2 SELECT \"{folder}\"\r\n");
+    let select_response = raw_send_and_wait(&mut reader, select_cmd.as_bytes(), "a2").await?;
+
+    let mut exists = 0u32;
+    let mut uidvalidity = 0u32;
+    let mut unseen = 0u32;
+    for line in select_response.lines() {
+        if let Some(n) = parse_untagged_number(line, "EXISTS") {
+            exists = n;
+        }
+        if line.contains("[UIDVALIDITY") {
+            if let Some(v) = extract_bracket_number(line, "UIDVALIDITY") {
+                uidvalidity = v;
+            }
+        }
+        if line.contains("[UNSEEN") {
+            if let Some(v) = extract_bracket_number(line, "UNSEEN") {
+                unseen = v;
+            }
+        }
+    }
+
+    let folder_status = ImapFolderStatus {
+        uidvalidity,
+        uidnext: 0,
+        exists,
+        unseen,
+        highest_modseq: None,
+    };
+
+    let fetch_item = if headers_only {
+        "UID FLAGS INTERNALDATE BODY.PEEK[HEADER]"
+    } else {
+        "UID FLAGS INTERNALDATE BODY.PEEK[]"
+    };
+
+    let parser = MessageParser::default();
+    let mut messages = Vec::new();
+    let mut tag_num = 3u32;
+
+    for batch in uid_batches {
+        if batch.is_empty() {
+            continue;
+        }
+        let uid_range: String = batch
+            .iter()
+            .map(|u| u.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let tag = format!("a{tag_num}");
+        tag_num += 1;
+        let fetch_cmd = format!("{tag} UID FETCH {uid_range} ({fetch_item})\r\n");
+        reader.get_mut().write_all(fetch_cmd.as_bytes()).await
+            .map_err(|e| format!("FETCH write: {e}"))?;
+
+        let raw_messages = raw_parse_fetch_responses(&mut reader, &tag).await?;
+        for raw_msg in &raw_messages {
+            match parse_message(
+                &parser,
+                &raw_msg.body,
+                raw_msg.uid,
+                folder,
+                raw_msg.body.len() as u32,
+                raw_msg.is_read,
+                raw_msg.is_starred,
+                raw_msg.is_draft,
+                raw_msg.internal_date,
+            ) {
+                Ok(msg) => messages.push(msg),
+                Err(e) => log::warn!("RAW FETCH batched: failed to parse UID {}: {e}", raw_msg.uid),
+            }
+        }
+    }
+
+    let logout_tag = format!("a{tag_num}");
+    let _ = reader.get_mut().write_all(format!("{logout_tag} LOGOUT\r\n").as_bytes()).await;
 
     Ok(ImapFetchResult { messages, folder_status })
 }

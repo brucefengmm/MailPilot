@@ -797,6 +797,36 @@ const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_imap_folder_sync_prefs_account ON imap_folder_sync_prefs(account_id);
     `,
   },
+  {
+    version: 26,
+    description: "AI summarize/replies mode and output language settings",
+    sql: `
+      INSERT OR IGNORE INTO settings (key, value) VALUES
+        ('ai_summarize_mode', 'auto'),
+        ('ai_smart_replies_mode', 'auto'),
+        ('ai_summary_language', 'en'),
+        ('ai_replies_language', 'en');
+
+      UPDATE settings SET value = 'manual'
+      WHERE key = 'ai_summarize_mode'
+        AND EXISTS (SELECT 1 FROM settings WHERE key = 'ai_auto_summarize' AND value = 'false');
+    `,
+  },
+  {
+    version: 27,
+    description: "AI cache message fingerprint for stale detection",
+    sql: `
+      ALTER TABLE ai_cache ADD COLUMN message_fingerprint TEXT;
+    `,
+  },
+  {
+    version: 28,
+    description: "Configurable background sync interval (default 120s)",
+    sql: `
+      INSERT OR IGNORE INTO settings (key, value) VALUES
+        ('sync_interval_seconds', '120');
+    `,
+  },
 ];
 
 /**

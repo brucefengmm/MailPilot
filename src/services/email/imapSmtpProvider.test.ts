@@ -42,6 +42,7 @@ vi.mock("../imap/messageHelper", () => ({
 
 vi.mock("../db/messages", () => ({
   upsertMessage: vi.fn(),
+  getMessagesForThread: vi.fn(),
 }));
 
 vi.mock("../db/threads", () => ({
@@ -64,7 +65,7 @@ import {
   smtpTestConnection,
 } from "../imap/tauriCommands";
 import { findSpecialFolder } from "../imap/messageHelper";
-import { upsertMessage } from "../db/messages";
+import { upsertMessage, getMessagesForThread } from "../db/messages";
 import { upsertThread, setThreadLabels, getThreadLabelIds } from "../db/threads";
 
 const mockImapConfig = {
@@ -322,6 +323,25 @@ describe("ImapSmtpProvider", () => {
         [100],
         ["Seen"],
         false,
+      );
+    });
+
+    it("resolves message IDs from thread when messageIds is empty", async () => {
+      vi.mocked(getMessagesForThread).mockResolvedValue([
+        { id: "imap-acc-1-INBOX-100" } as never,
+        { id: "imap-acc-1-INBOX-101" } as never,
+      ]);
+      vi.mocked(imapSetFlags).mockResolvedValue(undefined);
+
+      await provider.markRead("thread-1", [], true);
+
+      expect(getMessagesForThread).toHaveBeenCalledWith("acc-1", "thread-1");
+      expect(imapSetFlags).toHaveBeenCalledWith(
+        mockImapConfig,
+        "INBOX",
+        [100, 101],
+        ["Seen"],
+        true,
       );
     });
   });

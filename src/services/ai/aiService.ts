@@ -1,7 +1,13 @@
 import { getActiveProvider } from "./providerManager";
-import { getAiCache, setAiCache } from "@/services/db/aiCache";
+import { getValidAiCacheContent, setAiCache } from "@/services/db/aiCache";
 import { AiError } from "./errors";
 import type { DbMessage } from "@/services/db/messages";
+import { computeThreadMessageFingerprint } from "./threadFingerprint";
+import {
+  getRepliesLanguage,
+  getSummaryLanguage,
+  languageInstruction,
+} from "./aiPreferences";
 import {
   SUMMARIZE_PROMPT,
   COMPOSE_PROMPT,
@@ -51,17 +57,20 @@ export async function summarizeThread(
   accountId: string,
   messages: DbMessage[],
 ): Promise<string> {
-  // Check cache first
-  const cached = await getAiCache(accountId, threadId, "summary");
+  const lang = await getSummaryLanguage();
+  const cacheType = `summary_${lang}`;
+  const fingerprint = computeThreadMessageFingerprint(messages);
+
+  const cached = await getValidAiCacheContent(accountId, threadId, cacheType, fingerprint);
   if (cached) return cached;
 
   const subject = messages[0]?.subject ?? "No subject";
   const formatted = messages.map(formatMessageForSummary).join("\n---\n");
   const combined = `Subject: ${subject}\n\n${formatted}`.slice(0, 6000);
-  const summary = await callAi(SUMMARIZE_PROMPT, combined);
+  const systemPrompt = `${SUMMARIZE_PROMPT}\n\n${languageInstruction(lang)}`;
+  const summary = await callAi(systemPrompt, combined);
 
-  // Cache the result
-  await setAiCache(accountId, threadId, "summary", summary);
+  await setAiCache(accountId, threadId, cacheType, summary, fingerprint);
   return summary;
 }
 
@@ -99,8 +108,11 @@ export async function generateSmartReplies(
   accountId: string,
   messages: DbMessage[],
 ): Promise<string[]> {
-  // Check cache first
-  const cached = await getAiCache(accountId, threadId, "smart_replies");
+  const lang = await getRepliesLanguage();
+  const cacheType = `smart_replies_${lang}`;
+  const fingerprint = computeThreadMessageFingerprint(messages);
+
+  const cached = await getValidAiCacheContent(accountId, threadId, cacheType, fingerprint);
   if (cached) {
     try {
       return JSON.parse(cached) as string[];
@@ -111,7 +123,8 @@ export async function generateSmartReplies(
 
   const formatted = messages.map(formatMessageForSummary).join("\n---\n");
   const combined = formatted.slice(0, 4000);
-  const result = await callAi(SMART_REPLY_PROMPT, `<email_content>${combined}</email_content>`);
+  const systemPrompt = `${SMART_REPLY_PROMPT}\n\n${languageInstruction(lang)}`;
+  const result = await callAi(systemPrompt, `<email_content>${combined}</email_content>`);
 
   // Parse JSON array from response
   let replies: string[];
@@ -138,8 +151,7 @@ export async function generateSmartReplies(
   while (replies.length < 3) replies.push("Thanks for the update.");
   replies = replies.slice(0, 3);
 
-  // Cache the result
-  await setAiCache(accountId, threadId, "smart_replies", JSON.stringify(replies));
+  await setAiCache(accountId, threadId, cacheType, JSON.stringify(replies), fingerprint);
   return replies;
 }
 

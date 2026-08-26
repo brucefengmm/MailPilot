@@ -6,13 +6,37 @@ import { getThreadCountForAccount, deleteAllThreadsForAccount } from "../db/thre
 import { deleteAllMessagesForAccount, getMessageCountForAccount } from "../db/messages";
 import { imapInitialSync, imapDeltaSync, repairImapThreadsFromDb } from "../imap/imapSync";
 import { clearAllFolderSyncStates } from "../db/folderSyncState";
-import { hasFolderSyncPrefs } from "../db/imapSyncPrefs";
+import { hasFolderSyncPrefs, isImapReadyForAutoSync } from "../db/imapSyncPrefs";
 import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import { hasCalendarSupport, getCalendarProvider } from "../calendar/providerFactory";
 import { getVisibleCalendars, upsertCalendar, updateCalendarSyncToken } from "../db/calendars";
 import { upsertCalendarEvent, deleteEventByRemoteId } from "../db/calendarEvents";
 
-const SYNC_INTERVAL_MS = 60_000; // 60 seconds — delta syncs are lightweight (single API call when idle)
+const DEFAULT_SYNC_INTERVAL_SECONDS = 120;
+const MIN_SYNC_INTERVAL_SECONDS = 30;
+const MAX_SYNC_INTERVAL_SECONDS = 3600;
+
+let syncIntervalMs = DEFAULT_SYNC_INTERVAL_SECONDS * 1000;
+
+/** Read sync interval from settings (30s–1h, default 120s). */
+export async function getSyncIntervalMs(): Promise<number> {
+  const val = await getSetting("sync_interval_seconds");
+  const seconds = parseInt(val ?? String(DEFAULT_SYNC_INTERVAL_SECONDS), 10);
+  if (!Number.isFinite(seconds)) {
+    return DEFAULT_SYNC_INTERVAL_SECONDS * 1000;
+  }
+  const clamped = Math.min(
+    MAX_SYNC_INTERVAL_SECONDS,
+    Math.max(MIN_SYNC_INTERVAL_SECONDS, seconds),
+  );
+  return clamped * 1000;
+}
+
+/** Reload interval from settings and restart the background sync timer. */
+export async function restartBackgroundSync(accountIds: string[]): Promise<void> {
+  syncIntervalMs = await getSyncIntervalMs();
+  startBackgroundSync(accountIds, true);
+}
 
 /** Map IMAP sync phases to the SyncProgress phases the UI understands. */
 function mapImapPhase(phase: string): "labels" | "threads" | "messages" | "done" {
@@ -36,7 +60,7 @@ export type SyncStatusCallback = (
 
 let statusCallback: SyncStatusCallback | null = null;
 
-/** Gmail/CalDAV only — IMAP accounts never auto-sync; user clicks Sync now. */
+/** Gmail always auto-syncs; IMAP auto-syncs only after folder prefs + first manual sync. */
 export async function filterAutoSyncAccountIds(
   accountIds: string[],
 ): Promise<string[]> {
@@ -44,7 +68,12 @@ export async function filterAutoSyncAccountIds(
   for (const id of accountIds) {
     const account = await getAccount(id);
     if (!account) continue;
-    if (account.provider === "imap") continue;
+    if (account.provider === "imap") {
+      if (await isImapReadyForAutoSync(id)) {
+        result.push(id);
+      }
+      continue;
+    }
     result.push(id);
   }
   return result;
@@ -351,8 +380,10 @@ export async function syncAccount(accountId: string): Promise<void> {
  * next interval tick — useful when the caller already triggered a sync for a
  * newly-added account and doesn't want existing accounts to block it.
  */
-export function startBackgroundSync(accountIds: string[], skipImmediateSync = false): void {
+export async function startBackgroundSync(accountIds: string[], skipImmediateSync = false): Promise<void> {
   stopBackgroundSync();
+
+  syncIntervalMs = await getSyncIntervalMs();
 
   const runAutoSync = async () => {
     const ids = await filterAutoSyncAccountIds(accountIds);
@@ -365,7 +396,7 @@ export function startBackgroundSync(accountIds: string[], skipImmediateSync = fa
 
   syncTimer = setInterval(() => {
     void runAutoSync();
-  }, SYNC_INTERVAL_MS);
+  }, syncIntervalMs);
 }
 
 /**

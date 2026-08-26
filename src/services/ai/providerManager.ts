@@ -1,25 +1,26 @@
 import { getSetting, getSecureSetting } from "@/services/db/settings";
 import { AiError } from "./errors";
 import type { AiProvider, AiProviderClient } from "./types";
-import { DEFAULT_MODELS, MODEL_SETTINGS } from "./types";
+import {
+  API_KEY_SETTINGS,
+  DEFAULT_MODELS,
+  isAiProvider,
+  MODEL_SETTINGS,
+} from "./types";
 import { createClaudeProvider, clearClaudeProvider } from "./providers/claudeProvider";
 import { createOpenAIProvider, clearOpenAIProvider } from "./providers/openaiProvider";
 import { createGeminiProvider, clearGeminiProvider } from "./providers/geminiProvider";
 import { createOllamaProvider, clearOllamaProvider } from "./providers/ollamaProvider";
 import { createCopilotProvider, clearCopilotProvider } from "./providers/copilotProvider";
-
-const API_KEY_SETTINGS: Record<Exclude<AiProvider, "ollama">, string> = {
-  claude: "claude_api_key",
-  openai: "openai_api_key",
-  gemini: "gemini_api_key",
-  copilot: "copilot_api_key",
-};
+import { createDeepSeekProvider, clearDeepSeekProvider } from "./providers/deepseekProvider";
+import { createGlmProvider, clearGlmProvider } from "./providers/glmProvider";
+import { createKimiProvider, clearKimiProvider } from "./providers/kimiProvider";
 
 let cachedProvider: { name: AiProvider; key: string; client: AiProviderClient } | null = null;
 
 export async function getActiveProviderName(): Promise<AiProvider> {
   const setting = await getSetting("ai_provider");
-  if (setting === "openai" || setting === "gemini" || setting === "ollama" || setting === "copilot") return setting;
+  if (isAiProvider(setting)) return setting;
   return "claude";
 }
 
@@ -68,6 +69,15 @@ export async function getActiveProvider(): Promise<AiProviderClient> {
     case "copilot":
       client = createCopilotProvider(apiKey, model);
       break;
+    case "deepseek":
+      client = createDeepSeekProvider(apiKey, model);
+      break;
+    case "glm":
+      client = createGlmProvider(apiKey, model);
+      break;
+    case "kimi":
+      client = createKimiProvider(apiKey, model);
+      break;
   }
 
   cachedProvider = { name: providerName, key: cacheKey, client };
@@ -100,4 +110,7 @@ export function clearProviderClients(): void {
   clearGeminiProvider();
   clearOllamaProvider();
   clearCopilotProvider();
+  clearDeepSeekProvider();
+  clearGlmProvider();
+  clearKimiProvider();
 }

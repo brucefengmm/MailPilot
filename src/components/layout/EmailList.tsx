@@ -22,7 +22,8 @@ import { getMessagesForThread } from "@/services/db/messages";
 import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } from "@/services/search/smartFolderQuery";
 import { getDb } from "@/services/db/connection";
 import { isBulkWriteMode } from "@/services/db/bulkWrite";
-import { Archive, Trash2, X, Ban, Filter, ChevronRight, Package, FolderSearch } from "lucide-react";
+import { Archive, Trash2, X, Ban, Filter, ChevronRight, Package, FolderSearch, RefreshCw } from "lucide-react";
+import { triggerSync } from "@/services/gmail/syncManager";
 import { EmptyState } from "../ui/EmptyState";
 import {
   InboxClearIllustration,
@@ -78,6 +79,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     : () => {};
 
   const [hasMore, setHasMore] = useState(true);
+  const [isManualSyncing, setIsManualSyncing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [categoryMap, setCategoryMap] = useState<Map<string, string>>(() => new Map());
@@ -484,6 +486,18 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     return () => container.removeEventListener("scroll", handleScroll);
   }, [loadMore]);
 
+  const handleManualSync = useCallback(async () => {
+    if (!activeAccountId || isManualSyncing) return;
+    setIsManualSyncing(true);
+    try {
+      await triggerSync([activeAccountId]);
+    } catch (err) {
+      console.error("Manual sync failed:", err);
+    } finally {
+      setIsManualSyncing(false);
+    }
+  }, [activeAccountId, isManualSyncing]);
+
   return (
     <div
       ref={listRef}
@@ -518,15 +532,26 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
             {filteredThreads.length} conversation{filteredThreads.length !== 1 ? "s" : ""}
           </span>
         </div>
-        <select
-          value={readFilter}
-          onChange={(e) => setReadFilter(e.target.value as "all" | "read" | "unread")}
-          className="text-xs bg-bg-tertiary text-text-secondary px-2 py-1 rounded border border-border-primary"
-        >
-          <option value="all">All</option>
-          <option value="unread">Unread</option>
-          <option value="read">Read</option>
-        </select>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void handleManualSync()}
+            disabled={!activeAccountId || isManualSyncing}
+            title="Sync now (F5)"
+            className="p-1.5 rounded text-text-secondary hover:text-text-primary hover:bg-bg-hover disabled:opacity-40 transition-colors"
+          >
+            <RefreshCw size={14} className={isManualSyncing ? "animate-spin" : ""} />
+          </button>
+          <select
+            value={readFilter}
+            onChange={(e) => setReadFilter(e.target.value as "all" | "read" | "unread")}
+            className="text-xs bg-bg-tertiary text-text-secondary px-2 py-1 rounded border border-border-primary"
+          >
+            <option value="all">All</option>
+            <option value="unread">Unread</option>
+            <option value="read">Read</option>
+          </select>
+        </div>
       </div>
 
       {/* Category tabs (inbox + split mode only) */}

@@ -1,8 +1,9 @@
 use crate::imap::client as imap_client;
 use crate::imap::types::{
-    DeltaCheckRequest, DeltaCheckResult, ImapConfig, ImapFetchResult, ImapFolder,
-    ImapFolderSearchResult, ImapFolderStatus, ImapFolderSyncResult, ImapFolderSyncSummary,
-    ImapMessage, ImapSyncBatchEvent,
+    DeltaCheckRequest, DeltaCheckResult, ImapConfig, ImapDeltaSyncRequest, ImapDeltaSyncResult,
+    ImapFetchResult, ImapFolder, ImapFolderSearchBatchResult, ImapFolderSearchResult,
+    ImapFolderStatus, ImapFolderSyncResult, ImapFolderSyncSummary, ImapMessage, ImapSyncBatchEvent,
+    SearchFolderRequest,
 };
 use crate::smtp::client as smtp_client;
 use crate::smtp::types::{SmtpConfig, SmtpSendResult};
@@ -351,6 +352,41 @@ pub async fn imap_delta_check(
     let results = imap_client::delta_check_folders(&mut session, &folders).await?;
     let _ = session.logout().await;
     Ok(results)
+}
+
+#[tauri::command]
+pub async fn imap_search_folders_batch(
+    config: ImapConfig,
+    folders: Vec<SearchFolderRequest>,
+) -> Result<Vec<ImapFolderSearchBatchResult>, String> {
+    let mut session = imap_client::connect(&config).await?;
+    let results = imap_client::search_folders_batch(&mut session, &folders).await?;
+    let _ = session.logout().await;
+    Ok(results)
+}
+
+#[tauri::command]
+pub async fn imap_fetch_messages_batched(
+    config: ImapConfig,
+    folder: String,
+    uid_batches: Vec<Vec<u32>>,
+    headers_only: Option<bool>,
+) -> Result<ImapFetchResult, String> {
+    imap_client::fetch_messages_batched(
+        &config,
+        &folder,
+        &uid_batches,
+        headers_only.unwrap_or(false),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn imap_run_delta_sync(
+    config: ImapConfig,
+    request: ImapDeltaSyncRequest,
+) -> Result<ImapDeltaSyncResult, String> {
+    imap_client::run_delta_sync(&config, &request).await
 }
 
 // ---------- SMTP commands ----------

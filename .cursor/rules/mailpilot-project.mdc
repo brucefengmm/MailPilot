@@ -1,0 +1,72 @@
+---
+description: MailPilot project guide synced from CLAUDE.md
+alwaysApply: true
+---
+
+# MailPilot — Project Context
+
+> **Canonical source:** `CLAUDE.md` at repo root. When `CLAUDE.md` changes, update this rule to match.
+
+## Commands
+
+```bash
+npm run tauri dev      # Tauri + Vite (port 1420)
+npm run tauri build    # Production build
+npm run dev            # Vite only
+npm run test           # Vitest single run
+npm run test:watch     # Vitest watch
+npx vitest run <file>  # Single test file
+npx tsc --noEmit       # Type-check
+cd src-tauri && cargo build && cargo test
+```
+
+## Architecture
+
+Tauri v2 desktop app: **Rust backend** (`src-tauri/`) + **React 19 frontend** via Tauri IPC.
+
+| Layer | Location | Notes |
+|-------|----------|-------|
+| Rust | `src-tauri/` | IMAP/SMTP, tray, OAuth, Tauri commands |
+| Services | `src/services/` | Business logic — plain async functions |
+| UI | `src/components/`, `src/stores/` | Zustand stores, no middleware |
+
+**Data flow:** Components → services (`emailActions`, `syncManager`, `imapSync`) → Tauri IPC → Rust IMAP/SMTP.
+
+**Email providers:** Use `getEmailProvider(account)` from `providerFactory.ts` — never call Gmail/IMAP directly from components. Modify ops go through `emailActions.ts` (optimistic UI + offline queue).
+
+## Key conventions
+
+- **TypeScript strict:** `noUnusedLocals`, `noUncheckedIndexedAccess`; path alias `@/` → `src/`
+- **Styling:** Tailwind v4 semantic tokens (`bg-bg-primary`, `text-text-primary`, …)
+- **DB migrations:** Append only in `src/services/db/migrations.ts` — never edit old migrations
+- **New Tauri commands:** Register in `src-tauri/src/lib.rs` + `capabilities/default.json`
+- **Tests:** Colocated `*.test.ts`; Vitest globals enabled
+
+## IMAP gotchas
+
+- Message IDs: `imap-{accountId}-{folder}-{uid}` (not RFC Message-ID)
+- Yandex/raw hosts: `prefer_raw_imap_fetch()` → single-connection batched fetch
+- Delta sync: header-only fetch; bodies loaded on demand via `messageBodyLoader.ts`
+- Thread actions with empty `messageIds`: provider resolves from DB by `threadId`
+- IMAP auto-sync: only after folder prefs + first manual sync (`imapSyncPrefs.ts`)
+
+## Sync
+
+- Background interval: `sync_interval_seconds` setting (default **120s**), `syncManager.ts`
+- Manual sync: **F5**, Settings → Sync now, EmailList header refresh button
+- IMAP delta: `imapRunDeltaSync` — batched search + header fetch
+
+## Commit & docs
+
+- Conventional Commits — see `.claude/skills/commit/SKILL.md`
+- **更新记录** / update changelog — see `.claude/skills/update-changelog/SKILL.md` (on demand, not per commit)
+- New features: add help card via `.claude/skills/document-feature/SKILL.md`
+
+## Skills (`.claude/skills/`)
+
+| Skill | Use when |
+|-------|----------|
+| `commit` | Creating git commits |
+| `document-feature` | Adding Help page content |
+| `react-best-practices` | React perf/refactors |
+| `composition-patterns` | Component architecture |

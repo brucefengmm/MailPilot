@@ -10,10 +10,11 @@ import { snoozeThread } from "@/services/snooze/snoozeManager";
 import { getGmailClient } from "@/services/gmail/tokenManager";
 import { SnoozeDialog } from "./SnoozeDialog";
 import { FollowUpDialog } from "./FollowUpDialog";
-import { Archive, Trash2, MailOpen, Mail, Star, Clock, Ban, Pin, MailMinus, BellRing, VolumeX, Reply, ReplyAll, Forward, FolderInput, Printer, Download, ExternalLink, PanelRightClose, PanelRightOpen, ListTodo } from "lucide-react";
+import { Archive, Trash2, MailOpen, Mail, Star, Clock, Ban, Pin, MailMinus, BellRing, VolumeX, Reply, ReplyAll, Forward, FolderInput, Printer, Download, ExternalLink, PanelRightClose, PanelRightOpen, ListTodo, Sparkles, MessageSquareText } from "lucide-react";
 import type { DbMessage } from "@/services/db/messages";
 import { insertFollowUpReminder, getFollowUpForThread, cancelFollowUpForThread } from "@/services/db/followUpReminders";
 import { Button } from "@/components/ui/Button";
+import type { AiTriggerMode } from "@/services/ai/aiPreferences";
 
 interface ActionBarProps {
   thread: Thread;
@@ -30,13 +31,20 @@ interface ActionBarProps {
   onPopOut?: () => void;
   onToggleContactSidebar?: () => void;
   onToggleTaskSidebar?: () => void;
+  aiAvailable?: boolean;
+  summarizeMode?: AiTriggerMode;
+  smartRepliesMode?: AiTriggerMode;
+  canSummarize?: boolean;
+  canQuickReplies?: boolean;
+  onAiSummarize?: () => void;
+  onQuickReplies?: () => void;
 }
 
 function Separator() {
   return <div className="w-px h-5 bg-border-secondary mx-1 shrink-0" />;
 }
 
-export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply", contactSidebarVisible, taskSidebarVisible, onReply, onReplyAll, onForward, onPrint, onExport, onPopOut, onToggleContactSidebar, onToggleTaskSidebar }: ActionBarProps) {
+export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply", contactSidebarVisible, taskSidebarVisible, onReply, onReplyAll, onForward, onPrint, onExport, onPopOut, onToggleContactSidebar, onToggleTaskSidebar, aiAvailable = false, summarizeMode = "auto", smartRepliesMode = "auto", canSummarize = false, canQuickReplies = false, onAiSummarize, onQuickReplies }: ActionBarProps) {
   const updateThread = useThreadStore((s) => s.updateThread);
   const removeThread = useThreadStore((s) => s.removeThread);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
@@ -232,6 +240,26 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
               onClick={onForward}
               title="Forward (f)"
             />
+            {aiAvailable && summarizeMode === "manual" && canSummarize && (
+              <Button
+                variant="secondary"
+                iconOnly
+                icon={<Sparkles size={15} />}
+                onClick={onAiSummarize}
+                title="AI Summarize"
+                className="text-accent"
+              />
+            )}
+            {aiAvailable && smartRepliesMode === "manual" && canQuickReplies && (
+              <Button
+                variant="secondary"
+                iconOnly
+                icon={<MessageSquareText size={15} />}
+                onClick={onQuickReplies}
+                title="Quick Replies"
+                className="text-accent"
+              />
+            )}
             <Separator />
           </>
         )}

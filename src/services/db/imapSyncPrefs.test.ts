@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   getAccountImapSyncConfig,
   getFilteredSyncFolders,
+  hasCompletedImapInitialSync,
+  isImapReadyForAutoSync,
+  needsImapSyncSetup,
 } from "./imapSyncPrefs";
 import { createMockDbAccount } from "@/test/mocks";
 import { createMockImapFolder } from "@/test/mocks";
@@ -10,12 +13,17 @@ vi.mock("./connection", () => ({
   getDb: vi.fn(),
 }));
 
+vi.mock("./accounts", () => ({
+  getAccount: vi.fn(),
+}));
+
 vi.mock("../imap/folderMapper", () => ({
   getSyncableFolders: vi.fn((folders: unknown[]) => folders),
   sortFoldersForSync: vi.fn((folders: unknown[]) => folders),
 }));
 
 import { getDb } from "./connection";
+import { getAccount } from "./accounts";
 import { getSyncableFolders, sortFoldersForSync } from "../imap/folderMapper";
 
 describe("getAccountImapSyncConfig", () => {
@@ -83,5 +91,46 @@ describe("getFilteredSyncFolders", () => {
     const result = await getFilteredSyncFolders("acc-1", folders);
     expect(result).toHaveLength(1);
     expect(result[0]!.raw_path).toBe("INBOX");
+  });
+});
+
+describe("IMAP auto-sync readiness", () => {
+  beforeEach(() => {
+    vi.mocked(getDb).mockResolvedValue({
+      select: vi.fn(async () => [{ count: 1 }]),
+    } as never);
+  });
+
+  it("isImapReadyForAutoSync requires folder prefs and history_id", async () => {
+    vi.mocked(getAccount).mockResolvedValue(
+      createMockDbAccount({ provider: "imap", history_id: "imap-synced-1" }),
+    );
+    await expect(isImapReadyForAutoSync("acc-1")).resolves.toBe(true);
+
+    vi.mocked(getAccount).mockResolvedValue(
+      createMockDbAccount({ provider: "imap", history_id: null }),
+    );
+    await expect(isImapReadyForAutoSync("acc-1")).resolves.toBe(false);
+  });
+
+  it("needsImapSyncSetup is false after first sync", async () => {
+    vi.mocked(getAccount).mockResolvedValue(
+      createMockDbAccount({ provider: "imap", history_id: "imap-synced-1" }),
+    );
+    await expect(needsImapSyncSetup("acc-1")).resolves.toBe(false);
+  });
+
+  it("needsImapSyncSetup is true when folders configured but never synced", async () => {
+    vi.mocked(getAccount).mockResolvedValue(
+      createMockDbAccount({ provider: "imap", history_id: null }),
+    );
+    await expect(needsImapSyncSetup("acc-1")).resolves.toBe(true);
+  });
+
+  it("hasCompletedImapInitialSync checks history_id", async () => {
+    vi.mocked(getAccount).mockResolvedValue(
+      createMockDbAccount({ provider: "imap", history_id: null }),
+    );
+    await expect(hasCompletedImapInitialSync("acc-1")).resolves.toBe(false);
   });
 });

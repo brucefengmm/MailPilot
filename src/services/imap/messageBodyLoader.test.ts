@@ -21,7 +21,7 @@ vi.mock("../email/providerFactory", () => ({
   ),
 }));
 
-const { ensureMessageBodyLoaded } = await import("./messageBodyLoader");
+const { ensureMessageBodyLoaded, _resetBodyLoadCacheForTesting } = await import("./messageBodyLoader");
 
 function makeMessage(overrides: Partial<DbMessage> = {}): DbMessage {
   return {
@@ -59,6 +59,7 @@ function makeMessage(overrides: Partial<DbMessage> = {}): DbMessage {
 describe("ensureMessageBodyLoaded", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    _resetBodyLoadCacheForTesting();
     mockGetAccount.mockResolvedValue({
       id: "acc-1",
       provider: "imap",
@@ -88,5 +89,24 @@ describe("ensureMessageBodyLoaded", () => {
     );
     expect(result.body_html).toBe("<p>Hello</p>");
     expect(result.body_cached).toBe(1);
+  });
+
+  it("deduplicates concurrent fetches for the same message", async () => {
+    let resolveFetch!: (value: { bodyHtml: string; bodyText: string }) => void;
+    const fetchPromise = new Promise<{ bodyHtml: string; bodyText: string }>((resolve) => {
+      resolveFetch = resolve;
+    });
+    mockFetchMessage.mockReturnValue(fetchPromise);
+
+    const message = makeMessage();
+    const p1 = ensureMessageBodyLoaded(message);
+    const p2 = ensureMessageBodyLoaded(message);
+
+    resolveFetch({ bodyHtml: "<p>Hello</p>", bodyText: "Hello" });
+    const [r1, r2] = await Promise.all([p1, p2]);
+
+    expect(mockFetchMessage).toHaveBeenCalledTimes(1);
+    expect(r1.body_html).toBe("<p>Hello</p>");
+    expect(r2.body_html).toBe("<p>Hello</p>");
   });
 });

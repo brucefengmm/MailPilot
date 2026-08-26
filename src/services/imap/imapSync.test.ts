@@ -507,7 +507,7 @@ describe("imapInitialSync", () => {
     );
   });
 
-  it("stores metadata only during sync (bodies loaded on demand)", async () => {
+  it("persists body content when available during sync (P0.2)", async () => {
     const msg = createMockImapMessage({
       uid: 1,
       message_id: "<m1@test>",
@@ -521,8 +521,8 @@ describe("imapInitialSync", () => {
 
     expect(vi.mocked(bulkInsertPlaceholderMessages)).toHaveBeenCalled();
     const bulkItems = vi.mocked(bulkInsertPlaceholderMessages).mock.calls[0]?.[0] ?? [];
-    expect(bulkItems[0]?.message.bodyHtml).toBeNull();
-    expect(bulkItems[0]?.message.bodyText).toBeNull();
+    expect(bulkItems[0]?.message.bodyHtml).toBe("<p>Hello</p>");
+    expect(bulkItems[0]?.message.bodyText).toBe("Hello");
   });
 
   it("wraps thread storage in a transaction", async () => {

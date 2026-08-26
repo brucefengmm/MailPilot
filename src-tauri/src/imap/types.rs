@@ -90,6 +90,52 @@ pub struct ImapFolderSearchResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchFolderRequest {
+    pub folder: String,
+    pub since_date: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImapFolderSearchBatchResult {
+    pub folder: String,
+    pub uids: Vec<u32>,
+    pub folder_status: ImapFolderStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FolderUidFetch {
+    pub folder: String,
+    pub uids: Vec<u32>,
+    /// When true, fetch full body even if request.headers_only is set.
+    #[serde(default)]
+    pub full_body: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImapFolderFetchBatchResult {
+    pub folder: String,
+    pub messages: Vec<ImapMessage>,
+    pub folder_status: ImapFolderStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImapDeltaSyncRequest {
+    pub new_folder_searches: Vec<SearchFolderRequest>,
+    pub delta_checks: Vec<DeltaCheckRequest>,
+    pub fetches: Vec<FolderUidFetch>,
+    #[serde(default)]
+    pub headers_only: bool,
+    pub resync_since_date: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImapDeltaSyncResult {
+    pub search_results: Vec<ImapFolderSearchBatchResult>,
+    pub delta_results: Vec<DeltaCheckResult>,
+    pub fetch_results: Vec<ImapFolderFetchBatchResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeltaCheckRequest {
     pub folder: String,
     pub last_uid: u32,
