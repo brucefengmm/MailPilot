@@ -430,7 +430,7 @@ pub async fn fetch_message_body(
     folder: &str,
     uid: u32,
 ) -> Result<ImapMessage, String> {
-    tokio::time::timeout(IMAP_CMD_TIMEOUT, session.select(folder))
+    let mailbox = tokio::time::timeout(IMAP_CMD_TIMEOUT, session.select(folder))
         .await
         .map_err(|_| format!("SELECT {folder} timed out after {}s — check your server settings or network connection", IMAP_CMD_TIMEOUT.as_secs()))?
         .map_err(|e| format!("SELECT {folder} failed: {e}"))?;
@@ -449,6 +449,17 @@ pub async fn fetch_message_body(
     .into_iter()
     .filter_map(|r| r.ok())
     .collect();
+
+    // If async-imap returned nothing but the mailbox has messages, the stream
+    // parser likely failed to decode the server response (observed on QQ Mail).
+    // Signal the caller to fall back to raw TCP fetch.
+    if fetches.is_empty() && mailbox.exists > 0 {
+        log::warn!(
+            "IMAP {folder}: async-imap UID FETCH returned 0 items but exists={}. Falling back to raw TCP fetch...",
+            mailbox.exists,
+        );
+        return Err(format!("ASYNC_IMAP_EMPTY:{folder}"));
+    }
 
     let fetch = fetches
         .first()

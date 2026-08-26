@@ -290,24 +290,32 @@ pub async fn imap_sync_folder_streaming(
     batch_size: u32,
     since_date: Option<String>,
 ) -> Result<ImapFolderSyncSummary, String> {
-    let emit_batch = |messages: Vec<ImapMessage>,
-                      batch_index: u32,
-                      fetched_count: u32,
-                      total_uids: u32,
-                      is_last: bool,
-                      folder_status: &ImapFolderStatus| {
-        let event = ImapSyncBatchEvent {
-            account_id: account_id.clone(),
-            folder: folder.clone(),
-            messages,
-            fetched_count,
-            total_uids,
-            batch_index,
-            is_last_batch: is_last,
-            folder_status: folder_status.clone(),
-        };
-        app.emit("imap-sync-folder-batch", event)
-            .map_err(|e| format!("Failed to emit sync batch event: {e}"))
+    // Factory that builds a fresh batch-emitter closure. Needed so we can pass
+    // an emitter into both the async-imap path and the raw-TCP fallback path
+    // without moving the same closure twice.
+    let make_emit_batch = || {
+        let app = app.clone();
+        let account_id = account_id.clone();
+        let folder = folder.clone();
+        move |messages: Vec<ImapMessage>,
+              batch_index: u32,
+              fetched_count: u32,
+              total_uids: u32,
+              is_last: bool,
+              folder_status: &ImapFolderStatus| {
+            let event = ImapSyncBatchEvent {
+                account_id: account_id.clone(),
+                folder: folder.clone(),
+                messages,
+                fetched_count,
+                total_uids,
+                batch_index,
+                is_last_batch: is_last,
+                folder_status: folder_status.clone(),
+            };
+            app.emit("imap-sync-folder-batch", event)
+                .map_err(|e| format!("Failed to emit sync batch event: {e}"))
+        }
     };
 
     if imap_client::prefer_raw_imap_fetch(&config.host) {
@@ -316,7 +324,7 @@ pub async fn imap_sync_folder_streaming(
             &folder,
             batch_size,
             since_date,
-            emit_batch,
+            make_emit_batch(),
         )
         .await;
     }
@@ -326,12 +334,32 @@ pub async fn imap_sync_folder_streaming(
         &mut session,
         &folder,
         batch_size,
-        since_date,
-        emit_batch,
+        since_date.clone(),
+        make_emit_batch(),
     )
     .await;
     let _ = session.logout().await;
-    result
+
+    // Fallback to raw TCP fetch when async-imap silently returns 0 messages
+    // despite UIDs being present (observed on some QQ Mail folders where the
+    // async-imap stream parser yields no items even though SEARCH found UIDs).
+    match &result {
+        Ok(summary) if summary.messages_fetched == 0 && !summary.uids.is_empty() => {
+            log::warn!(
+                "imap_sync_folder_streaming: async-imap fetched 0/{} messages for {folder}, falling back to raw TCP fetch",
+                summary.uids.len(),
+            );
+            imap_client::raw_sync_folder_with_batches(
+                &config,
+                &folder,
+                batch_size,
+                since_date,
+                make_emit_batch(),
+            )
+            .await
+        }
+        _ => result,
+    }
 }
 
 #[tauri::command]
