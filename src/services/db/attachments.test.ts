@@ -9,7 +9,7 @@ vi.mock("@/services/db/connection", async (importOriginal) => {
 });
 
 import { getDb } from "@/services/db/connection";
-import { getAttachmentsForAccount, getAttachmentSenders, upsertAttachment, getAttachmentsForMessage } from "./attachments";
+import { getAttachmentsForAccount, getAttachmentSenders, upsertAttachment, getAttachmentsForMessage, isFileAttachment, hasFileAttachments } from "./attachments";
 import { createMockDb } from "@/test/mocks";
 
 const mockDb = createMockDb();
@@ -99,6 +99,59 @@ describe("attachments DB service", () => {
         "SELECT * FROM attachments WHERE account_id = $1 AND message_id = $2 ORDER BY filename ASC",
         ["acc-1", "msg-1"],
       );
+    });
+  });
+
+  describe("isFileAttachment", () => {
+    it("rejects multipart container rows", () => {
+      expect(
+        isFileAttachment({
+          id: "a1",
+          message_id: "m1",
+          account_id: "acc-1",
+          filename: "attachment",
+          mime_type: "multipart/mixed",
+          size: null,
+          gmail_attachment_id: null,
+          content_id: null,
+          is_inline: 0,
+          local_path: null,
+        }),
+      ).toBe(false);
+    });
+
+    it("accepts real file rows", () => {
+      expect(
+        isFileAttachment({
+          id: "a1",
+          message_id: "m1",
+          account_id: "acc-1",
+          filename: "file.zip",
+          mime_type: "application/zip",
+          size: 100,
+          gmail_attachment_id: "2",
+          content_id: null,
+          is_inline: 0,
+          local_path: null,
+        }),
+      ).toBe(true);
+    });
+  });
+
+  describe("hasFileAttachments", () => {
+    it("returns false when only bogus multipart rows exist", async () => {
+      mockDb.select.mockResolvedValueOnce([
+        {
+          id: "a1",
+          message_id: "m1",
+          account_id: "acc-1",
+          filename: "attachment",
+          mime_type: "multipart/alternative",
+          is_inline: 0,
+        },
+      ]);
+
+      expect(await hasFileAttachments("acc-1", "m1")).toBe(false);
     });
   });
 });

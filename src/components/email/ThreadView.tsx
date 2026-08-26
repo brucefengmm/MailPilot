@@ -8,6 +8,7 @@ import { useThreadStore, type Thread } from "@/stores/threadStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { markThreadRead } from "@/services/emailActions";
+import { backfillThreadAttachments } from "@/services/imap/messageBodyLoader";
 import { getSetting } from "@/services/db/settings";
 import { getAllowlistedSenders } from "@/services/db/imageAllowlist";
 import { VolumeX } from "lucide-react";
@@ -106,6 +107,14 @@ export function ThreadView({ thread }: ThreadViewProps) {
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [activeAccountId, thread.id]);
+
+  // Backfill attachments for the latest message only (avoid IMAP connection storms)
+  useEffect(() => {
+    if (!activeAccountId || messages.length === 0) return;
+    void backfillThreadAttachments(activeAccountId, thread.id, messages).then((count) => {
+      if (count > 0) updateThread(thread.id, { hasAttachments: true });
+    });
+  }, [activeAccountId, thread.id, messages, updateThread]);
 
   // Check per-sender allowlist (single batch query instead of N queries)
   useEffect(() => {

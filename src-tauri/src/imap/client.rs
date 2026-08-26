@@ -1053,12 +1053,13 @@ pub async fn run_delta_sync(
 
     let mut fetches = request.fetches.clone();
     if fetches.is_empty() {
+        let full_body = !request.headers_only;
         for sr in &search_results {
             if !sr.uids.is_empty() {
                 fetches.push(FolderUidFetch {
                     folder: sr.folder.clone(),
                     uids: sr.uids.clone(),
-                    full_body: true,
+                    full_body,
                 });
             }
         }
@@ -1067,7 +1068,7 @@ pub async fn run_delta_sync(
                 fetches.push(FolderUidFetch {
                     folder: dr.folder.clone(),
                     uids: dr.new_uids.clone(),
-                    full_body: false,
+                    full_body,
                 });
             }
         }
@@ -2520,51 +2521,22 @@ fn parse_message(
     let section_map = build_imap_section_map(&message);
 
     log::debug!(
-        "IMAP parse UID {uid}: {} parts, {} attachment indices {:?}, section_map: {:?}",
+        "IMAP parse UID {uid}: {} parts, mail-parser attachment indices {:?}, section_map: {:?}",
         message.parts.len(),
-        message.attachments.len(),
         message.attachments,
         section_map,
     );
 
-    // Attachments
-    let attachments: Vec<ImapAttachment> = message
-        .attachments
-        .iter()
-        .filter_map(|&part_idx| {
-            let att = message.parts.get(part_idx)?;
-            let section = match section_map.get(&part_idx) {
-                Some(s) => s.clone(),
-                None => {
-                    log::warn!(
-                        "IMAP UID {uid}: attachment at part index {part_idx} not found in section map (map has {} entries)",
-                        section_map.len(),
-                    );
-                    return None;
-                }
-            };
+    let attachment_indices = collect_attachment_part_indices(&message);
+    log::info!(
+        "IMAP parse UID {uid}: collected {} attachment part(s) {:?}",
+        attachment_indices.len(),
+        attachment_indices,
+    );
 
-            let mime_type = att
-                .content_type()
-                .map(|ct| {
-                    let ctype = ct.ctype();
-                    let subtype = ct.subtype().unwrap_or("octet-stream");
-                    format!("{ctype}/{subtype}")
-                })
-                .unwrap_or_else(|| "application/octet-stream".to_string());
-
-            Some(ImapAttachment {
-                part_id: section,
-                filename: att
-                    .attachment_name()
-                    .unwrap_or("attachment")
-                    .to_string(),
-                mime_type,
-                size: att.len() as u32,
-                content_id: att.content_id().map(|s| s.to_string()),
-                is_inline: att.content_disposition().map_or(false, |cd| cd.is_inline()),
-            })
-        })
+    let attachments: Vec<ImapAttachment> = attachment_indices
+        .into_iter()
+        .filter_map(|part_idx| part_to_imap_attachment(&message, part_idx, &section_map, uid))
         .collect();
 
     Ok(ImapMessage {
@@ -2640,6 +2612,98 @@ fn build_imap_section_map(message: &mail_parser::Message) -> std::collections::H
     }
 
     map
+}
+
+/// Collect MIME part indices that represent downloadable attachments.
+/// mail-parser's built-in `message.attachments` misses filename-only parts (zip/docx).
+fn collect_attachment_part_indices(message: &mail_parser::Message) -> Vec<usize> {
+    use mail_parser::PartType;
+    use std::collections::HashSet;
+
+    let mut indices: Vec<usize> = message.attachments.clone();
+    let mut seen: HashSet<usize> = indices.iter().copied().collect();
+
+    for (idx, part) in message.parts.iter().enumerate() {
+        if matches!(part.body, PartType::Multipart(_)) {
+            continue;
+        }
+
+        let ctype = part
+            .content_type()
+            .map(|ct| ct.ctype())
+            .unwrap_or("");
+        let subtype = part
+            .content_type()
+            .and_then(|ct| ct.subtype())
+            .unwrap_or("");
+
+        let has_filename = part.attachment_name().is_some();
+        let disposition = part.content_disposition();
+        let is_attachment = disposition.map(|cd| cd.is_attachment()).unwrap_or(false);
+        let is_inline = disposition.map(|cd| cd.is_inline()).unwrap_or(false);
+        let has_cid = part.content_id().is_some();
+
+        let is_text_body = ctype == "text" && (subtype == "plain" || subtype == "html");
+        if is_text_body && !has_filename && !is_attachment {
+            continue;
+        }
+
+        if is_inline && has_cid && !has_filename {
+            continue;
+        }
+
+        if has_filename || is_attachment || (ctype != "text" && ctype != "multipart") {
+            if seen.insert(idx) {
+                indices.push(idx);
+            }
+        }
+    }
+
+    indices
+}
+
+fn part_to_imap_attachment(
+    message: &mail_parser::Message,
+    part_idx: usize,
+    section_map: &std::collections::HashMap<usize, String>,
+    uid: u32,
+) -> Option<ImapAttachment> {
+    let att = message.parts.get(part_idx)?;
+    let section = match section_map.get(&part_idx) {
+        Some(s) => s.clone(),
+        None => {
+            log::warn!(
+                "IMAP UID {uid}: attachment at part index {part_idx} not found in section map (map has {} entries)",
+                section_map.len(),
+            );
+            return None;
+        }
+    };
+
+    let mime_type = att
+        .content_type()
+        .map(|ct| {
+            let ctype = ct.ctype();
+            let subtype = ct.subtype().unwrap_or("octet-stream");
+            format!("{ctype}/{subtype}")
+        })
+        .unwrap_or_else(|| "application/octet-stream".to_string());
+
+    if mime_type.starts_with("multipart/") {
+        return None;
+    }
+
+    Some(ImapAttachment {
+        part_id: section,
+        filename: att
+            .attachment_name()
+            .unwrap_or("attachment")
+            .to_string(),
+        mime_type,
+        size: att.len() as u32,
+        content_id: att.content_id().map(|s| s.to_string()),
+        is_inline: att.content_disposition().map_or(false, |cd| cd.is_inline()),
+    })
 }
 
 /// Extract a text value from a HeaderValue, if present.

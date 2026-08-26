@@ -86,6 +86,14 @@ export async function getThreadsForCategory(
   );
 }
 
+export async function markThreadHasAttachments(threadId: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "UPDATE threads SET has_attachments = 1 WHERE id = $1",
+    [threadId],
+  );
+}
+
 export async function upsertThread(
   thread: {
   id: string;

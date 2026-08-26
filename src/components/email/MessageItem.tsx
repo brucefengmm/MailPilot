@@ -42,22 +42,29 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
     !displayMessage.body_text;
 
   useEffect(() => {
-    if (!expanded || !needsBodyFetch) return;
+    if (!expanded) return;
 
     let cancelled = false;
-    setBodyLoading(true);
-    setBodyLoadError(false);
+    const showLoading = needsBodyFetch;
+    if (showLoading) {
+      setBodyLoading(true);
+      setBodyLoadError(false);
+    }
 
     ensureMessageBodyLoaded(displayMessage)
       .then((loaded) => {
-        if (!cancelled) setDisplayMessage(loaded);
+        if (!cancelled) {
+          setDisplayMessage(loaded);
+          attachmentsLoadedRef.current = false;
+          void loadAttachments();
+        }
       })
       .catch((err) => {
         console.error("Failed to load message body:", err);
         if (!cancelled) setBodyLoadError(true);
       })
       .finally(() => {
-        if (!cancelled) setBodyLoading(false);
+        if (!cancelled && showLoading) setBodyLoading(false);
       });
 
     return () => {

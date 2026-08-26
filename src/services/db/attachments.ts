@@ -1,4 +1,5 @@
 import { getDb } from "./connection";
+import type { ParsedAttachment } from "../gmail/messageParser";
 
 export interface DbAttachment {
   id: string;
@@ -111,4 +112,51 @@ export async function getAttachmentsForMessage(
     "SELECT * FROM attachments WHERE account_id = $1 AND message_id = $2 ORDER BY filename ASC",
     [accountId, messageId],
   );
+}
+
+/** True when the row represents a downloadable file (not inline CID or MIME container). */
+export function isFileAttachment(att: DbAttachment): boolean {
+  if (att.is_inline && !att.filename) return false;
+  if (!att.filename) return false;
+
+  const mime = (att.mime_type ?? "").toLowerCase();
+  if (mime.startsWith("multipart/")) return false;
+
+  return true;
+}
+
+export async function hasFileAttachments(
+  accountId: string,
+  messageId: string,
+): Promise<boolean> {
+  const atts = await getAttachmentsForMessage(accountId, messageId);
+  return atts.some(isFileAttachment);
+}
+
+export async function persistParsedAttachments(
+  accountId: string,
+  messageId: string,
+  attachments: ParsedAttachment[],
+): Promise<number> {
+  let stored = 0;
+  for (const att of attachments) {
+    if (att.isInline && !att.filename) continue;
+    if (!att.filename) continue;
+    const mime = (att.mimeType ?? "").toLowerCase();
+    if (mime.startsWith("multipart/")) continue;
+
+    await upsertAttachment({
+      id: `${messageId}_${att.gmailAttachmentId}`,
+      messageId,
+      accountId,
+      filename: att.filename,
+      mimeType: att.mimeType,
+      size: att.size,
+      gmailAttachmentId: att.gmailAttachmentId,
+      contentId: att.contentId,
+      isInline: att.isInline,
+    });
+    stored++;
+  }
+  return stored;
 }
