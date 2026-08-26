@@ -23,13 +23,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -n "${{ inputs.tag_name }}" ]; then
-            # Called from release-please workflow — tag_name is the full tag (e.g. mailpilot-v0.4.12)
+            # Called from release-please workflow — tag_name is the full tag (e.g. v0.0.3)
             TAG="${{ inputs.tag_name }}"
           elif [ -n "${{ inputs.version }}" ]; then
             # Manual dispatch with a version — look up the actual tag from releases
             TAG=$(gh release list --repo ${{ github.repository }} --json tagName -q "[.[] | select(.tagName | test(\"${{ inputs.version }}\"))][0].tagName")
             if [ -z "$TAG" ]; then
-              TAG="mailpilot-v${{ inputs.version }}"
+              TAG="v${{ inputs.version }}"
             fi
           else
             # Manual dispatch without version — use latest release
@@ -84,7 +84,7 @@ jobs:
             version "${VERSION}"
             sha256 "${SHA256}"
 
-            url "https://github.com/brucefengmm/MailPilot/releases/download/mailpilot-v#{version}/MailPilot_#{version}_universal.dmg",
+            url "https://github.com/brucefengmm/MailPilot/releases/download/v#{version}/MailPilot_#{version}_universal.dmg",
                 verified: "github.com/brucefengmm/MailPilot/"
 
             name "MailPilot"

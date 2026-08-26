@@ -67,7 +67,7 @@ Create a git commit following the [Conventional Commits](https://www.conventiona
 
 6. **Push to the current branch** with `git push`. If the branch has no upstream, use `git push -u origin HEAD`.
 
-**CHANGELOG:** Do not update `CHANGELOG.md` on every commit. When the user asks **更新记录**, use `.claude/skills/update-changelog/SKILL.md`.
+**CHANGELOG:** Do not edit `CHANGELOG.md` manually. Release Please updates it in the Release PR from conventional commits. See [docs/release.md](../../docs/release.md).
 
 ## User hint
 

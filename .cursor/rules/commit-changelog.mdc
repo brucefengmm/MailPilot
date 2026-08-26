@@ -1,5 +1,5 @@
 ---
-description: Commit workflow — CHANGELOG is updated on demand, not per commit
+description: Commit workflow — CHANGELOG is managed by release-please, not edited manually
 alwaysApply: true
 ---
 
@@ -9,6 +9,6 @@ Use [Conventional Commits](https://www.conventionalcommits.org/) — see `.claud
 
 ## CHANGELOG
 
-**Do not** edit `CHANGELOG.md` when committing unless the user also asks to **更新记录** in the same request.
+**Do not** edit `CHANGELOG.md` manually. [release-please](https://github.com/googleapis/release-please) updates it when opening the Release PR, from conventional commits since the last release.
 
-When the user says **更新记录** / **update changelog**, follow `.cursor/rules/update-changelog.mdc` and `.claude/skills/update-changelog/SKILL.md`.
+Write clear `feat:` / `fix:` / `perf:` commit messages so release notes are accurate. See [docs/release.md](docs/release.md).

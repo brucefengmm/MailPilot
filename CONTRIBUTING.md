@@ -84,7 +84,9 @@ test: add coverage for filter engine AND logic
 chore: bump tauri to v2.10
 ```
 
-To update `CHANGELOG.md`, ask **更新记录** — the agent will summarize changes for the current `package.json` version (see `.claude/skills/update-changelog/SKILL.md`).
+`CHANGELOG.md` is updated automatically by **release-please** when a Release PR is opened — from conventional commits since the last tag. Do not edit it manually.
+
+Use descriptive commit messages (`feat:`, `fix:`, `perf:`) so release notes are accurate. See [docs/release.md](docs/release.md).
 
 ## Pull Requests
 

@@ -58,8 +58,8 @@ Tauri v2 desktop app: **Rust backend** (`src-tauri/`) + **React 19 frontend** vi
 
 ## Commit & docs
 
-- Conventional Commits — see `.claude/skills/commit/SKILL.md`
-- **更新记录** / update changelog — see `.claude/skills/update-changelog/SKILL.md` (on demand, not per commit)
+- Conventional Commits — see `.claude/skills/commit/SKILL.md` (release-please generates `CHANGELOG.md` on Release PR)
+- Releases — see [docs/release.md](docs/release.md)
 - New features: add help card via `.claude/skills/document-feature/SKILL.md`
 
 ## Skills (`.claude/skills/`)
