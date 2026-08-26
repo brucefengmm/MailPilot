@@ -121,7 +121,17 @@ When prompted for a password, press **Enter** for none (simplest for CI).
 Get-Content "$env:USERPROFILE\.tauri\mailpilot.key" -Raw | Set-Clipboard
 ```
 
-The secret must contain lines starting with `untrusted comment:` (visible after paste). If your `.key` file is one long base64 line, CI will auto-decode it; otherwise open the file in Notepad → **Ctrl+A** → **Ctrl+C**.
+The secret must be the **exact** contents of `mailpilot.key`. On Windows Tauri often stores this as **one base64 line** (no visible `untrusted comment:` text) — that is normal; paste the whole line as-is.
+
+To validate locally (shows only the header line, not the secret):
+
+```powershell
+$b64 = (Get-Content "$env:USERPROFILE\.tauri\mailpilot.key" -Raw).Trim()
+([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64)) -split "`n")[0]
+```
+
+- **`minisign secret key`** → no password secret needed
+- **`encrypted secret key`** → set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
 
 - **Public key** (`.pub` file) → `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`
 - **Password** → only if you set one at generate time → Secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
