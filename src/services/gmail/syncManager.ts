@@ -4,8 +4,16 @@ import { getAccount, clearAccountHistoryId } from "../db/accounts";
 import { getSetting } from "../db/settings";
 import { getThreadCountForAccount, deleteAllThreadsForAccount } from "../db/threads";
 import { deleteAllMessagesForAccount, getMessageCountForAccount } from "../db/messages";
-import { imapInitialSync, imapDeltaSync, repairImapThreadsFromDb } from "../imap/imapSync";
-import { clearAllFolderSyncStates } from "../db/folderSyncState";
+import {
+  imapInitialSync,
+  imapDeltaSync,
+  repairImapThreadsFromDb,
+  type ImapSyncProgress,
+} from "../imap/imapSync";
+import { clearAllFolderSyncStates, getAllFolderSyncStates } from "../db/folderSyncState";
+import { getFilteredSyncFolders } from "../db/imapSyncPrefs";
+import { imapListFolders } from "../imap/tauriCommands";
+import { buildImapConfig } from "../imap/imapConfigBuilder";
 import { hasFolderSyncPrefs, isImapReadyForAutoSync } from "../db/imapSyncPrefs";
 import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import { hasCalendarSupport, getCalendarProvider } from "../calendar/providerFactory";
@@ -174,46 +182,62 @@ async function syncImapAccount(accountId: string): Promise<void> {
   const syncPeriodStr = await getSetting("sync_period_days");
   const syncDays = parseInt(syncPeriodStr ?? "365", 10) || 365;
 
-  if (account.history_id) {
-    // Delta sync — IMAP uses folder-level UID tracking
-    const result = await imapDeltaSync(accountId, syncDays);
+  const reportImapProgress = (progress: ImapSyncProgress) => {
+    statusCallback?.(accountId, "syncing", {
+      phase: mapImapPhase(progress.phase),
+      current: progress.current,
+      total: progress.total,
+    });
+  };
 
-    // Recovery: if delta sync found nothing new but thread state is broken,
-    // rebuild threads from existing messages or force a full re-sync.
-    if (result.messages.length === 0) {
-      const threadCount = await getThreadCountForAccount(accountId);
-      if (threadCount === 0) {
-        const messageCount = await getMessageCountForAccount(accountId);
-        if (messageCount > 0) {
-          console.warn(
-            `[syncManager] IMAP delta sync: ${messageCount} messages but 0 threads for ${accountId} — repairing`,
-          );
-          await repairImapThreadsFromDb(accountId);
-        } else {
-          console.warn(
-            `[syncManager] IMAP delta sync returned 0 new messages and DB has 0 threads for ${accountId} — forcing full re-sync`,
-          );
-          await clearAccountHistoryId(accountId);
-          await clearAllFolderSyncStates(accountId);
-          await imapInitialSync(accountId, syncDays, (progress) => {
-            statusCallback?.(accountId, "syncing", {
-              phase: mapImapPhase(progress.phase),
-              current: progress.current,
-              total: progress.total,
-            });
-          });
-        }
+  // Folder sync state missing (e.g. partial reset) — use initial sync so progress UI works.
+  const config = buildImapConfig(account);
+  const syncStates = await getAllFolderSyncStates(accountId);
+  const allFolders = await imapListFolders(config);
+  const syncableFolders = await getFilteredSyncFolders(accountId, allFolders);
+  const syncStateMap = new Map(syncStates.map((s) => [s.folder_path, s]));
+  const missingAllFolderState =
+    syncableFolders.length > 0 &&
+    syncableFolders.every((f) => !syncStateMap.has(f.raw_path));
+
+  const runInitialSync = async () => {
+    await imapInitialSync(accountId, syncDays, reportImapProgress);
+  };
+
+  if (!account.history_id || missingAllFolderState) {
+    if (missingAllFolderState && account.history_id) {
+      console.warn(
+        `[syncManager] IMAP folder sync state missing for ${accountId} — running initial sync with progress`,
+      );
+      await clearAccountHistoryId(accountId);
+    }
+    await runInitialSync();
+    return;
+  }
+
+  // Delta sync — IMAP uses folder-level UID tracking (no progress UI; counts are misleading)
+  const result = await imapDeltaSync(accountId, syncDays);
+
+  // Recovery: if delta sync found nothing new but thread state is broken,
+  // rebuild threads from existing messages or force a full re-sync.
+  if (result.messages.length === 0) {
+    const threadCount = await getThreadCountForAccount(accountId);
+    if (threadCount === 0) {
+      const messageCount = await getMessageCountForAccount(accountId);
+      if (messageCount > 0) {
+        console.warn(
+          `[syncManager] IMAP delta sync: ${messageCount} messages but 0 threads for ${accountId} — repairing`,
+        );
+        await repairImapThreadsFromDb(accountId);
+      } else {
+        console.warn(
+          `[syncManager] IMAP delta sync returned 0 new messages and DB has 0 threads for ${accountId} — forcing full re-sync`,
+        );
+        await clearAccountHistoryId(accountId);
+        await clearAllFolderSyncStates(accountId);
+        await runInitialSync();
       }
     }
-  } else {
-    // First time — full initial sync
-    await imapInitialSync(accountId, syncDays, (progress) => {
-      statusCallback?.(accountId, "syncing", {
-        phase: mapImapPhase(progress.phase),
-        current: progress.current,
-        total: progress.total,
-      });
-    });
   }
 }
 

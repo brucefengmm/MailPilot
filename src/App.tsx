@@ -106,11 +106,15 @@ export default function App() {
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [syncProgress, setSyncProgress] = useState<{ current: number; total: number } | null>(
+    null,
+  );
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const [showAskInbox, setShowAskInbox] = useState(false);
   const [moveToFolderState, setMoveToFolderState] = useState<{ open: boolean; threadIds: string[] }>({ open: false, threadIds: [] });
   const deepLinkCleanupRef = useRef<(() => void) | undefined>(undefined);
+  const hadDetailedSyncProgressRef = useRef(false);
 
   // Sync bridge: router state → Zustand stores (temporary)
   useRouterSyncBridge();
@@ -392,21 +396,39 @@ export default function App() {
     const unsub = onSyncStatus((accountId, status, progress, error) => {
       if (status === "syncing") {
         if (progress) {
+          hadDetailedSyncProgressRef.current = true;
+          setSyncProgress({
+            current: progress.current,
+            total: Math.max(progress.total, 1),
+          });
           if (progress.phase === "messages") {
             setSyncStatus(
               `Syncing: ${progress.current}/${progress.total} messages`,
             );
           } else if (progress.phase === "labels") {
-            setSyncStatus("Syncing labels...");
+            setSyncStatus(
+              progress.total > 1
+                ? `Syncing folders... (${progress.current}/${progress.total})`
+                : "Fetching mail from server...",
+            );
           } else if (progress.phase === "threads") {
             setSyncStatus(`Building threads... (${progress.current}/${progress.total})`);
           }
         } else {
-          setSyncStatus("Syncing...");
+          // Delta / background sync — no numeric progress (avoids misleading 0/N)
+          hadDetailedSyncProgressRef.current = false;
+          setSyncProgress(null);
+          setSyncStatus(null);
         }
       } else if (status === "done") {
-        setSyncStatus("Sync complete");
-        setTimeout(() => setSyncStatus(null), 2_000);
+        setSyncProgress(null);
+        if (hadDetailedSyncProgressRef.current) {
+          setSyncStatus("Sync complete");
+          setTimeout(() => setSyncStatus(null), 2_000);
+        } else {
+          setSyncStatus(null);
+        }
+        hadDetailedSyncProgressRef.current = false;
         window.dispatchEvent(new Event("mailpilot-sync-done"));
         updateBadgeCount();
 
@@ -418,6 +440,7 @@ export default function App() {
             .catch((err) => console.error("Backfill error:", err));
         }
       } else if (status === "error") {
+        setSyncProgress(null);
         setSyncStatus(error ? `Sync failed: ${formatSyncError(error)}` : "Sync failed");
         // Still dispatch sync-done so the UI refreshes with any partially stored data
         window.dispatchEvent(new Event("mailpilot-sync-done"));
@@ -574,11 +597,21 @@ export default function App() {
       {/* Sync status bar */}
       {syncStatus && (
         <div
-          className={`fixed bottom-0 left-0 right-0 glass-panel text-white text-xs px-4 py-1.5 text-center z-40 animate-[slideUp_200ms_ease-out,fadeIn_200ms_ease-out] ${
+          className={`fixed bottom-0 left-0 right-0 glass-panel text-white text-xs z-40 animate-[slideUp_200ms_ease-out,fadeIn_200ms_ease-out] ${
             syncStatus.startsWith("Sync failed") ? "bg-danger/90" : "bg-accent/90"
           }`}
         >
-          {syncStatus}
+          {syncProgress && (
+            <div className="h-1 bg-white/20">
+              <div
+                className="h-full bg-white/90 transition-[width] duration-300 ease-out"
+                style={{
+                  width: `${Math.min(100, Math.round((syncProgress.current / syncProgress.total) * 100))}%`,
+                }}
+              />
+            </div>
+          )}
+          <div className="px-4 py-1.5 text-center">{syncStatus}</div>
         </div>
       )}
 

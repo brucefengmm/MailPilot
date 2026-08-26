@@ -48,8 +48,8 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "resources": {
-      "LICENSE": "../LICENSE",
-      "NOTICE": "../NOTICE"
+      "../LICENSE": "LICENSE",
+      "../NOTICE": "NOTICE"
     },
     "icon": [
       "icons/32x32.png",
