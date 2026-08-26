@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **This file is updated by [release-please](https://github.com/googleapis/release-please) in Release PRs.** Do not edit manually — write clear conventional commits (`feat:`, `fix:`, `perf:`) instead.
 
+## [0.1.1](https://github.com/brucefengmm/MailPilot/compare/mailpilot-v0.1.0...mailpilot-v0.1.1) (2026-08-26)
+
+
+### Bug Fixes
+
+* **imap:** fall back to raw TCP when async-imap returns empty stream ([8daf84a](https://github.com/brucefengmm/MailPilot/commit/8daf84a95616af01eacbca926e3c240d1f686c45))
+
 ## [0.1.0](https://github.com/brucefengmm/MailPilot/compare/mailpilot-v0.0.2...mailpilot-v0.1.0) (2026-08-26)
 
 
