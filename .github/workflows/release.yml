@@ -30,7 +30,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci
@@ -53,7 +53,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
@@ -75,6 +75,16 @@ jobs:
             libayatana-appindicator3-dev
 
       - run: npm ci
+
+      - name: Verify Tauri signing secret
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is empty. Paste the full mailpilot.key contents (including untrusted comment lines) into GitHub Secrets."
+            exit 1
+          fi
+          echo "Tauri signing secret is configured."
 
       - name: Build and upload to existing release
         if: inputs.release_id
@@ -112,7 +122,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
@@ -124,6 +134,16 @@ jobs:
           workspaces: src-tauri -> target
 
       - run: npm ci
+
+      - name: Verify Tauri signing secret
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is empty. Paste the full mailpilot.key contents (including untrusted comment lines) into GitHub Secrets."
+            exit 1
+          fi
+          echo "Tauri signing secret is configured."
 
       - name: Check if Apple signing is configured
         id: signing-check

@@ -169,6 +169,10 @@ Release tags use the format **`v{version}`** (e.g. `v0.0.2`), matching Build & R
 
 Requires `HOMEBREW_TAP_TOKEN` with write access to the tap repo.
 
+### CI: "A public key has been found, but no private key"
+
+`createUpdaterArtifacts` + `pubkey` require signing in CI. Set **`TAURI_SIGNING_PRIVATE_KEY`** to the full `.key` file contents (all lines). If the key has a password, set **`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`** too. The workflow verifies the secret before building.
+
 ## Quick reference
 
 | Goal | Action |
@@ -183,7 +187,8 @@ Requires `HOMEBREW_TAP_TOKEN` with write access to the tap repo.
 
 | Symptom | Likely cause |
 | --- | --- |
-| No `latest.json` on Release | Missing `TAURI_SIGNING_PRIVATE_KEY` or `createUpdaterArtifacts: false` |
+| Build fails: public key but no private key | `TAURI_SIGNING_PRIVATE_KEY` secret missing, empty, or truncated |
+| No `latest.json` on Release | Missing signing secret or `createUpdaterArtifacts: false` |
 | Update check fails in app | Pubkey/private key mismatch, or no newer Release |
 | Homebrew job fails | Missing `HOMEBREW_TAP_TOKEN`, or DMG not uploaded yet (wait for Build & Release) |
 | Release Please does not open PR | No releasable commits since last tag, or Actions PR permission blocked |
