@@ -162,6 +162,7 @@ describe("accounts", () => {
         "user@fastmail.com",
         "Fastmail User",
         null,
+        null, // access_token (smtp OAuth token) — none for password auth
         "imap.fastmail.com",
         993,
         "ssl",
@@ -169,7 +170,8 @@ describe("accounts", () => {
         465,
         "ssl",
         "password",
-        "enc:my-app-password", // encrypted
+        null, // smtp_auth_method
+        "enc:my-app-password", // encrypted imap_password
         null, // imap_username
         0, // accept_invalid_certs
       ]);
@@ -200,7 +202,7 @@ describe("accounts", () => {
       expect(params).toContain("custom-login-id");
     });
 
-    it("sets access_token and refresh_token to NULL for IMAP accounts", async () => {
+    it("stores null OAuth tokens for password-only IMAP accounts", async () => {
       mockExecute.mockResolvedValue(undefined);
 
       await insertImapAccount({
@@ -218,8 +220,9 @@ describe("accounts", () => {
         password: "pass",
       });
 
-      const [sql] = mockExecute.mock.calls[0] as [string, unknown[]];
-      expect(sql).toContain("NULL, NULL");
+      const [sql, params] = mockExecute.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain("$5, NULL, 'imap'");
+      expect(params[4]).toBeNull();
       expect(sql).toContain("'imap'");
     });
   });
