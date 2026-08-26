@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **This file is updated by [release-please](https://github.com/googleapis/release-please) in Release PRs.** Do not edit manually — write clear conventional commits (`feat:`, `fix:`, `perf:`) instead.
 
+## [0.1.2](https://github.com/brucefengmm/MailPilot/compare/mailpilot-v0.1.1...mailpilot-v0.1.2) (2026-08-26)
+
+
+### Bug Fixes
+
+* **imap:** repair QQ incremental sync and parallelize delta fetches ([ed7df31](https://github.com/brucefengmm/MailPilot/commit/ed7df315b678c25c9b1e385cfa9509dfc140be1c))
+
 ## [0.1.1](https://github.com/brucefengmm/MailPilot/compare/mailpilot-v0.1.0...mailpilot-v0.1.1) (2026-08-26)
 
 
