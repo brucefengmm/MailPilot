@@ -1,6 +1,6 @@
 [package]
 name = "mailpilot"
-version = "0.1.0" # x-release-please-version
+version = "0.1.1" # x-release-please-version
 description = "Email at the speed of thought"
 authors = ["MailPilot Contributors", "Avihay Menahem"]
 license = "Apache-2.0"
