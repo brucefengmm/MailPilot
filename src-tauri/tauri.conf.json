@@ -66,7 +66,7 @@
       ]
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDBBOTdENTBCODA0QUEzNzAKUldSd28wcUFDOVdYQ3BxVzhEV1RqL1B2VXpndUw5N2RzMGVTdlNBMWZuZnNiZk5YR2FtTDg2d0cK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgwQjI1NEY0NDNCQ0RFMkIKUldRcjNyeEQ5RlN5Z0hyMG1sQ3VPazluQmc1U0orL05qM0JvS3BlOWcvWXRWU0hOSlhtbVdWdmkK",
       "endpoints": [
         "https://github.com/brucefengmm/MailPilot/releases/latest/download/latest.json"
       ]
