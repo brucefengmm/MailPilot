@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **This file is updated by [release-please](https://github.com/googleapis/release-please) in Release PRs.** Do not edit manually — write clear conventional commits (`feat:`, `fix:`, `perf:`) instead.
 
+## [0.1.3](https://github.com/brucefengmm/MailPilot/compare/mailpilot-v0.1.2...mailpilot-v0.1.3) (2026-08-27)
+
+
+### Bug Fixes
+
+* **ci:** checkout release tag in build job to fix asset version mismatch ([c63c177](https://github.com/brucefengmm/MailPilot/commit/c63c1772b753c00c93b43105d2c1a67a443daf13))
+
 ## [0.1.2](https://github.com/brucefengmm/MailPilot/compare/mailpilot-v0.1.1...mailpilot-v0.1.2) (2026-08-26)
 
 
